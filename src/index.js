@@ -11,6 +11,14 @@ const agentRoots = {
   cursor: path.join(os.homedir(), ".cursor", "projects"),
 };
 
+function toCursorProjectKey(cwd) {
+  return path
+    .resolve(cwd)
+    .split(path.sep)
+    .filter(Boolean)
+    .join("-");
+}
+
 async function walk(dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files = await Promise.all(
@@ -32,6 +40,17 @@ async function readJsonl(filePath) {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+async function readSessionCwd(filePath, agent) {
+  const items = await readJsonl(filePath);
+  if (agent === "codex") {
+    return items.find((item) => item.type === "session_meta")?.payload?.cwd ?? null;
+  }
+  if (agent === "qoder" || agent === "qodercli") {
+    return items.find((item) => item.cwd)?.cwd ?? null;
+  }
+  return null;
 }
 
 function cleanText(text) {
@@ -163,13 +182,35 @@ export function detectAgent(sessionPath) {
   return null;
 }
 
-export async function findLatestSession(rootDir = agentRoots.codex) {
+export async function findLatestSession(rootDir = agentRoots.codex, options = {}) {
   const files = await walk(rootDir);
   if (files.length === 0) {
     throw new Error(`No session files found in ${rootDir}`);
   }
 
-  return files.sort().at(-1);
+  const sortedFiles = files.sort();
+  const cwd = options.cwd ?? null;
+  const agent = normalizeAgent(options.agent) ?? detectAgent(rootDir) ?? detectAgent(sortedFiles[0]);
+
+  if (!cwd || !agent) {
+    return sortedFiles.at(-1);
+  }
+
+  if (agent === "cursor") {
+    const projectKey = toCursorProjectKey(cwd);
+    const matches = sortedFiles.filter((filePath) => filePath.includes(`${path.sep}${projectKey}${path.sep}`));
+    return matches.sort().at(-1) ?? sortedFiles.at(-1);
+  }
+
+  const matches = [];
+  for (const filePath of sortedFiles) {
+    const sessionCwd = await readSessionCwd(filePath, agent);
+    if (sessionCwd && path.resolve(sessionCwd) === path.resolve(cwd)) {
+      matches.push(filePath);
+    }
+  }
+
+  return matches.at(-1) ?? sortedFiles.at(-1);
 }
 
 export async function parseSession({ sessionPath, agent }) {

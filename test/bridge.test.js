@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs/promises";
 
 import {
   detectAgent,
@@ -74,6 +75,26 @@ test("findLatestSession returns the newest jsonl file for a given agent root", a
   const latest = await findLatestSession(sessionsRoot);
 
   assert.equal(path.basename(latest), "rollout-2026-03-19T12-00-00-later.jsonl");
+});
+
+test("findLatestSession prefers sessions whose cwd matches the current directory", async () => {
+  const sessionsRoot = path.join(__dirname, "..", "fixtures", "cwd-sessions");
+  const currentDir = path.join(__dirname, "..", "fixtures", "workspace-a");
+  await fs.mkdir(currentDir, { recursive: true });
+
+  const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "codex" });
+
+  assert.equal(path.basename(latest), "rollout-2026-03-19T11-00-00-workspace-a.jsonl");
+});
+
+test("findLatestSession prefers the Cursor project derived from the current directory", async () => {
+  const sessionsRoot = path.join(__dirname, "..", "fixtures", "cursor-projects");
+  const currentDir = path.join(__dirname, "..", "fixtures", "cursor-workspace-a");
+  await fs.mkdir(currentDir, { recursive: true });
+
+  const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "cursor" });
+
+  assert.equal(path.basename(latest), "session-a.jsonl");
 });
 
 test("cli --stdout prints a handoff from an explicit qodercli alias", async () => {
