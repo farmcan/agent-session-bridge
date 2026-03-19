@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
+import os from "node:os";
 
 import {
   detectAgent,
@@ -14,6 +15,10 @@ import {
 } from "../src/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+async function makeTempDir(prefix) {
+  return fs.mkdtemp(path.join(os.tmpdir(), `${prefix}-`));
+}
 
 test("supportedAgents exposes the real adapter set", () => {
   assert.deepEqual(supportedAgents.sort(), ["codex", "cursor", "qoder", "qodercli"].sort());
@@ -78,9 +83,21 @@ test("findLatestSession returns the newest jsonl file for a given agent root", a
 });
 
 test("findLatestSession prefers sessions whose cwd matches the current directory", async () => {
-  const sessionsRoot = path.join(__dirname, "..", "fixtures", "cwd-sessions");
-  const currentDir = path.join(__dirname, "..", "fixtures", "workspace-a");
-  await fs.mkdir(currentDir, { recursive: true });
+  const currentDir = await makeTempDir("workspace-a");
+  const otherDir = await makeTempDir("workspace-b");
+  const sessionsRoot = await makeTempDir("codex-sessions");
+  const targetDir = path.join(sessionsRoot, "2026", "03", "19");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-19T11-00-00-workspace-a.jsonl"),
+    `{"timestamp":"2026-03-19T11:00:00.000Z","type":"session_meta","payload":{"id":"workspace-a","cwd":"${currentDir}"}}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-19T12-00-00-workspace-b.jsonl"),
+    `{"timestamp":"2026-03-19T12:00:00.000Z","type":"session_meta","payload":{"id":"workspace-b","cwd":"${otherDir}"}}\n`,
+    "utf8",
+  );
 
   const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "codex" });
 
@@ -88,9 +105,23 @@ test("findLatestSession prefers sessions whose cwd matches the current directory
 });
 
 test("findLatestSession prefers the Cursor project derived from the current directory", async () => {
-  const sessionsRoot = path.join(__dirname, "..", "fixtures", "cursor-projects");
-  const currentDir = path.join(__dirname, "..", "fixtures", "cursor-workspace-a");
-  await fs.mkdir(currentDir, { recursive: true });
+  const currentDir = await makeTempDir("cursor-workspace-a");
+  const otherDir = await makeTempDir("cursor-workspace-b");
+  const sessionsRoot = await makeTempDir("cursor-projects");
+  const currentKey = currentDir.split(path.sep).filter(Boolean).join("-");
+  const otherKey = otherDir.split(path.sep).filter(Boolean).join("-");
+  await fs.mkdir(path.join(sessionsRoot, currentKey, "agent-transcripts", "session-a"), { recursive: true });
+  await fs.mkdir(path.join(sessionsRoot, otherKey, "agent-transcripts", "session-b"), { recursive: true });
+  await fs.writeFile(
+    path.join(sessionsRoot, currentKey, "agent-transcripts", "session-a", "session-a.jsonl"),
+    '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nworkspace a\\n</user_query>"}]}}\n',
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(sessionsRoot, otherKey, "agent-transcripts", "session-b", "session-b.jsonl"),
+    '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\\nworkspace b\\n</user_query>"}]}}\n',
+    "utf8",
+  );
 
   const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "cursor" });
 

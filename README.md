@@ -43,7 +43,7 @@ Output:
 # Codex Session Handoff
 
 Session ID: 019d0592-84fc-7650-b1a2-37bd7d7ac211
-Working Directory: /Users/levi/wrksp
+Working Directory: /path/to/project
 
 ## Transcript
 
