@@ -1,8 +1,8 @@
 # agent-session-bridge
 
-Minimal open source CLI for moving a local agent session into another agent as a clean handoff.
+Move local coding-agent context from one agent to another in one command.
 
-It currently reads local session data from `Codex`, `Cursor`, `Qoder`, and `QoderCLI`, normalizes the transcript, and writes a Markdown handoff file you can open, copy, or feed into another agent.
+`agent-session-bridge` reads local session data from `Codex`, `Cursor`, `Qoder`, and `QoderCLI`, normalizes the transcript, and writes a clean Markdown handoff you can open, copy, or feed into another agent.
 
 ## Why
 
@@ -40,8 +40,10 @@ Input:
 Output:
 
 ```md
-# Codex Session Handoff
+# Agent Session Handoff
 
+Source Agent: codex
+Target Agent: cursor
 Session ID: 019d0592-84fc-7650-b1a2-37bd7d7ac211
 Working Directory: /path/to/project
 
@@ -145,7 +147,7 @@ The default command writes a file like:
 npm test
 ```
 
-Manual smoke tests I used on this machine:
+Real smoke tests I used on this machine:
 
 ```bash
 node src/cli.js --agent codex --session "$(find ~/.codex/sessions -type f | sort | tail -n 1)" --stdout
