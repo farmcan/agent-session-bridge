@@ -65,6 +65,28 @@ node src/cli.js --cursor
 node src/cli.js --out ./handoff.md
 ```
 
+If you use this a lot, shell aliases are the best workflow. Add these to `~/.zshrc`:
+
+```bash
+alias c2r='agent-session-bridge --agent codex --target cursor --copy'
+alias r2c='agent-session-bridge --agent cursor --target codex --copy'
+alias q2c='agent-session-bridge --agent qoder --target codex --copy'
+```
+
+Reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+Then you can run:
+
+```bash
+c2r
+r2c
+q2c
+```
+
 The default command writes a file like:
 
 ```text
