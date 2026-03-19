@@ -3,11 +3,25 @@
   "version": "0.1.0",
   "description": "Export Codex sessions into a Cursor-friendly handoff file.",
   "type": "module",
+  "main": "./src/index.js",
   "bin": {
     "agent-session-bridge": "./src/cli.js"
   },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/farmcan/agent-session-bridge.git"
+  },
+  "homepage": "https://github.com/farmcan/agent-session-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/farmcan/agent-session-bridge/issues"
   },
   "keywords": [
     "codex",
@@ -16,5 +30,9 @@
     "session",
     "cli"
   ],
+  "author": "Can",
+  "engines": {
+    "node": ">=20"
+  },
   "license": "MIT"
 }
