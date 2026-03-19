@@ -1,0 +1,4 @@
+{"timestamp":"2026-03-19T10:09:41.639Z","type":"session_meta","payload":{"id":"sample-session","cwd":"/tmp/demo","originator":"codex_cli_rs"}}
+{"timestamp":"2026-03-19T10:10:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Please add a dark mode toggle."}]}}
+{"timestamp":"2026-03-19T10:10:05.000Z","type":"event_msg","payload":{"type":"agent_message","message":"I am checking the frontend structure first.","phase":"commentary"}}
+{"timestamp":"2026-03-19T10:10:10.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I found the settings panel and will add the toggle there."}]}}

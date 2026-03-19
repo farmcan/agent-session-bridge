@@ -1,0 +1,20 @@
+{
+  "name": "agent-session-bridge",
+  "version": "0.1.0",
+  "description": "Export Codex sessions into a Cursor-friendly handoff file.",
+  "type": "module",
+  "bin": {
+    "agent-session-bridge": "./src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "codex",
+    "cursor",
+    "agent",
+    "session",
+    "cli"
+  ],
+  "license": "MIT"
+}
