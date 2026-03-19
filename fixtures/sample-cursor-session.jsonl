@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\n看看 .gitignore 有需要增加的部分吗，比如 plan 部分？\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Let me read the .gitignore file to see what's currently there."}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\n中文回答啊\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"抱歉！后续用中文回答。"}]}}

@@ -1,7 +1,7 @@
 {
   "name": "agent-session-bridge",
   "version": "0.1.0",
-  "description": "Export Codex sessions into a Cursor-friendly handoff file.",
+  "description": "Export local agent sessions into a clean cross-agent handoff file.",
   "type": "module",
   "main": "./src/index.js",
   "bin": {
@@ -26,6 +26,7 @@
   "keywords": [
     "codex",
     "cursor",
+    "qoder",
     "agent",
     "session",
     "cli"

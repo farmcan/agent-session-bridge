@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { findLatestSession, renderCursorPrompt } from "./index.js";
+import { findLatestSession, getDefaultRoot, renderHandoff } from "./index.js";
 
 function parseArgs(argv) {
   const args = {
+    agent: null,
     session: null,
     out: null,
+    target: "cursor",
     stdout: false,
     cursor: false,
     copy: false,
@@ -17,11 +18,17 @@ function parseArgs(argv) {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--session") {
+    if (arg === "--agent") {
+      args.agent = argv[i + 1];
+      i += 1;
+    } else if (arg === "--session") {
       args.session = argv[i + 1];
       i += 1;
     } else if (arg === "--out") {
       args.out = argv[i + 1];
+      i += 1;
+    } else if (arg === "--target") {
+      args.target = argv[i + 1];
       i += 1;
     } else if (arg === "--stdout") {
       args.stdout = true;
@@ -61,8 +68,13 @@ function copyToClipboard(content) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const sessionPath = args.session ?? (await findLatestSession());
-  const output = await renderCursorPrompt(sessionPath);
+  const sessionPath =
+    args.session ?? (await findLatestSession(getDefaultRoot(args.agent ?? "codex")));
+  const output = await renderHandoff({
+    sessionPath,
+    agent: args.agent,
+    target: args.target,
+  });
 
   if (args.stdout) {
     process.stdout.write(output);
@@ -70,7 +82,7 @@ async function main() {
   }
 
   const outputPath =
-    args.out ?? path.join(process.cwd(), `cursor-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
+    args.out ?? path.join(process.cwd(), `agent-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
   await fs.writeFile(outputPath, output, "utf8");
   process.stdout.write(`${outputPath}\n`);
 
