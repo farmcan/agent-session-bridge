@@ -69,7 +69,11 @@ function copyToClipboard(content) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const sessionPath =
-    args.session ?? (await findLatestSession(getDefaultRoot(args.agent ?? "codex")));
+    args.session ??
+    (await findLatestSession(getDefaultRoot(args.agent ?? "codex"), {
+      cwd: process.cwd(),
+      agent: args.agent ?? "codex",
+    }));
   const output = await renderHandoff({
     sessionPath,
     agent: args.agent,

@@ -65,12 +65,27 @@ node src/cli.js --cursor
 node src/cli.js --out ./handoff.md
 ```
 
+By default, the CLI does not just pick the global latest session. It first tries to find the newest session for your current working directory, then falls back to the latest session for that agent if nothing matches.
+
+Directory matching rules:
+
+- `codex`: match `session_meta.payload.cwd`
+- `qoder` / `qodercli`: match `working_dir`
+- `cursor`: match the Cursor project derived from the current directory
+
 If you use this a lot, shell aliases are the best workflow. Add these to `~/.zshrc`:
 
 ```bash
 alias c2r='agent-session-bridge --agent codex --target cursor --copy'
 alias r2c='agent-session-bridge --agent cursor --target codex --copy'
 alias q2c='agent-session-bridge --agent qoder --target codex --copy'
+```
+
+Before using the aliases, install the CLI globally from this repo:
+
+```bash
+npm install
+npm link
 ```
 
 Reload your shell:
@@ -87,6 +102,30 @@ r2c
 q2c
 ```
 
+To verify that `c2r` is really working, run a stdout-only version first:
+
+```bash
+alias c2r='agent-session-bridge --agent codex --target cursor --stdout'
+c2r | sed -n '1,12p'
+```
+
+If the alias is working, you should see output like:
+
+```text
+# Agent Session Handoff
+
+Source Agent: codex
+Target Agent: cursor
+Session ID: ...
+Source File: ~/.codex/sessions/...
+```
+
+Then switch back to the clipboard version:
+
+```bash
+alias c2r='agent-session-bridge --agent codex --target cursor --copy'
+```
+
 The default command writes a file like:
 
 ```text
@@ -95,7 +134,7 @@ The default command writes a file like:
 
 ## How It Works
 
-- Finds the newest session file for the selected agent unless you pass `--session`
+- Finds the most relevant session for the selected agent based on your current directory
 - Parses the local `jsonl` session log with an agent-specific adapter
 - Normalizes messages into one shared transcript format
 - Produces a single Markdown handoff file for the target agent
