@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { findLatestSession, getDefaultRoot, renderHandoff } from "./index.js";
+import { findLatestSession, getDefaultRoot, renderHandoff, renderStartPrompt } from "./index.js";
 
 function parseArgs(argv) {
   const args = {
@@ -88,15 +88,21 @@ async function main() {
   const outputPath =
     args.out ?? path.join(process.cwd(), `agent-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
   await fs.writeFile(outputPath, output, "utf8");
-  process.stdout.write(`${outputPath}\n`);
+  const promptPath = outputPath.replace(/\.md$/u, ".start.txt");
+  const prompt = await renderStartPrompt({
+    handoffPath: `./${path.basename(outputPath)}`,
+    target: args.target,
+  });
+  await fs.writeFile(promptPath, prompt, "utf8");
+  process.stdout.write(`${outputPath}\n${promptPath}\n`);
 
   if (args.copy) {
-    const content = await fs.readFile(outputPath, "utf8");
+    const content = await fs.readFile(promptPath, "utf8");
     await copyToClipboard(content);
   }
 
   if (args.cursor) {
-    await runCommand("cursor", [outputPath]);
+    await runCommand("cursor", [outputPath, promptPath]);
   }
 }
 

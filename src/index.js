@@ -299,9 +299,25 @@ export async function parseSession({ sessionPath, agent }) {
   return parsers[resolvedAgent](items, sessionPath, resolvedAgent);
 }
 
+function buildSuggestedNextStep(session) {
+  const lastUserMessage = [...session.messages].reverse().find((message) => message.role === "user");
+  if (!lastUserMessage) {
+    return "Read the transcript, inspect the current repository state, and continue from the most likely unfinished point.";
+  }
+
+  return `Start by checking the latest user request: "${lastUserMessage.text}". Verify it against the current repository, then continue from the most likely unfinished point.`;
+}
+
 export async function renderHandoff({ sessionPath, agent, target = "cursor" }) {
   const session = await parseSession({ sessionPath, agent });
   const transcript = session.messages.map((message) => `[${message.role}] ${message.text}`).join("\n\n");
+  const metadata = [];
+  if (session.title) {
+    metadata.push(`Conversation Title: ${session.title}`);
+  }
+  if (session.updatedAt) {
+    metadata.push(`Last Updated: ${session.updatedAt}`);
+  }
 
   return [
     "# Agent Session Handoff",
@@ -313,10 +329,33 @@ export async function renderHandoff({ sessionPath, agent, target = "cursor" }) {
     `Session ID: ${session.sessionId}`,
     `Source File: ${sessionPath}`,
     `Working Directory: ${session.cwd}`,
+    ...metadata,
+    "",
+    "## Suggested Next Step",
+    "",
+    buildSuggestedNextStep(session),
     "",
     "## Transcript",
     "",
     transcript,
+    "",
+  ].join("\n");
+}
+
+export async function renderStartPrompt({ handoffPath, target = "cursor" }) {
+  return [
+    "You are continuing work from another coding agent.",
+    "",
+    "First, read this handoff file:",
+    handoffPath,
+    "",
+    "Instructions:",
+    "1. Read the handoff file fully.",
+    "2. Summarize the current task, constraints, and likely next step in 5-10 lines.",
+    "3. Treat the handoff as context, not ground truth. Verify against the current repository before making changes.",
+    "4. Continue the task from the most likely unfinished point.",
+    "5. If the handoff is incomplete or inconsistent with the codebase, say so clearly before proceeding.",
+    `6. Continue the work in ${target} mode, but prioritize the repository state over the historical transcript.`,
     "",
   ].join("\n");
 }

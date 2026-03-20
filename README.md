@@ -2,7 +2,7 @@
 
 Move local coding-agent context from one agent to another in one command.
 
-`agent-session-bridge` reads local session data from `Codex`, `Cursor`, `Qoder`, and `QoderCLI`, normalizes the transcript, and writes a clean Markdown handoff you can open, copy, or feed into another agent.
+`agent-session-bridge` reads local session data from `Codex`, `Claude`, `Cursor`, `Qoder`, and `QoderCLI`, normalizes the transcript, and writes a handoff bundle for the next agent.
 
 ## Why
 
@@ -11,10 +11,10 @@ When you run multiple coding agents in parallel, context gets trapped inside eac
 ## Support Matrix
 
 - `codex` -> tested against real local sessions
+- `claude` -> tested against real local sessions
 - `cursor` -> tested against real local sessions
 - `qoder` -> tested against real local sessions
 - `qodercli` -> supported as an alias of `qoder`
-- `claude` -> not implemented yet
 - `augment` / `agment` -> not implemented yet
 
 ## Install
@@ -46,6 +46,11 @@ Source Agent: codex
 Target Agent: cursor
 Session ID: 019d0592-84fc-7650-b1a2-37bd7d7ac211
 Working Directory: /path/to/project
+Conversation Title: ...
+
+## Suggested Next Step
+
+Start by checking the latest user request...
 
 ## Transcript
 
@@ -58,6 +63,7 @@ Working Directory: /path/to/project
 
 ```bash
 node src/cli.js
+node src/cli.js --agent claude --stdout
 node src/cli.js --agent codex --stdout
 node src/cli.js --agent qoder --session ~/.qoder/projects/.../session.jsonl --stdout
 node src/cli.js --agent cursor --session ~/.cursor/projects/.../agent-transcripts/...jsonl --stdout
@@ -72,8 +78,24 @@ By default, the CLI does not just pick the global latest session. It first tries
 Directory matching rules:
 
 - `codex`: match `session_meta.payload.cwd`
+- `claude`: match `cwd` from project transcript entries
 - `qoder` / `qodercli`: match `working_dir`
 - `cursor`: match the Cursor project derived from the current directory
+
+## Two-Stage Handoff
+
+The default file output now creates two files:
+
+- `agent-handoff-<session>.md`: the full handoff with summary, metadata, suggested next step, and transcript
+- `agent-handoff-<session>.start.txt`: a short startup prompt for the next agent
+
+This is the recommended workflow:
+
+1. Generate the files locally
+2. Give the new agent the `.start.txt`
+3. Let the new agent read the `.md` file itself instead of pasting the whole transcript into context
+
+When you pass `--copy`, the CLI copies the startup prompt, not the raw transcript.
 
 If you use this a lot, shell aliases are the best workflow. Add these to `~/.zshrc`:
 
@@ -132,14 +154,17 @@ The default command writes a file like:
 
 ```text
 ./agent-handoff-rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.md
+./agent-handoff-rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.start.txt
 ```
 
 ## How It Works
 
 - Finds the most relevant session for the selected agent based on your current directory
 - Parses the local `jsonl` session log with an agent-specific adapter
+- Pulls extra metadata when available
+- `Qoder` / `QoderCLI`: also reads the sidecar `*-session.json` for title, working directory, and update time
 - Normalizes messages into one shared transcript format
-- Produces a single Markdown handoff file for the target agent
+- Produces a Markdown handoff file plus a startup prompt for the target agent
 
 ## Development
 
@@ -150,6 +175,7 @@ npm test
 Real smoke tests I used on this machine:
 
 ```bash
+node src/cli.js --agent claude --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --stdout
 node src/cli.js --agent codex --session "$(find ~/.codex/sessions -type f | sort | tail -n 1)" --stdout
 node src/cli.js --agent qoder --session "$(find ~/.qoder/projects -type f -name '*.jsonl' | sort | tail -n 1)" --stdout
 node src/cli.js --agent cursor --session "$(find ~/.cursor/projects -type f -path '*/agent-transcripts/*/*.jsonl' | sort | tail -n 1)" --stdout
@@ -158,8 +184,8 @@ node src/cli.js --agent cursor --session "$(find ~/.cursor/projects -type f -pat
 ## Roadmap
 
 - Support more agent formats beyond the current adapter set
-- Trim or summarize large sessions automatically
-- Offer richer target-specific prompt templates
+- Improve transcript summarization for long sessions
+- Offer richer target-specific startup prompts
 
 ## License
 

@@ -11,6 +11,7 @@ import {
   findLatestSession,
   parseSession,
   renderHandoff,
+  renderStartPrompt,
   supportedAgents,
 } from "../src/index.js";
 
@@ -21,7 +22,7 @@ async function makeTempDir(prefix) {
 }
 
 test("supportedAgents exposes the real adapter set", () => {
-  assert.deepEqual(supportedAgents.sort(), ["codex", "cursor", "qoder", "qodercli"].sort());
+  assert.deepEqual(supportedAgents.sort(), ["claude", "codex", "cursor", "qoder", "qodercli"].sort());
 });
 
 test("detectAgent recognizes Codex, Qoder, QoderCLI alias, and Cursor paths", () => {
@@ -29,7 +30,7 @@ test("detectAgent recognizes Codex, Qoder, QoderCLI alias, and Cursor paths", ()
   assert.equal(detectAgent("/tmp/.qoder/projects/demo.jsonl"), "qoder");
   assert.equal(detectAgent("/tmp/.qoder/bin/qodercli/demo.jsonl"), "qodercli");
   assert.equal(detectAgent("/tmp/.cursor/projects/foo/agent-transcripts/id/session.jsonl"), "cursor");
-  assert.equal(detectAgent("/tmp/.claude/projects/foo.jsonl"), null);
+  assert.equal(detectAgent("/tmp/.claude/projects/foo.jsonl"), "claude");
   assert.equal(detectAgent("/tmp/.augment/sessions/foo.jsonl"), null);
 });
 
@@ -50,6 +51,7 @@ test("parseSession reads a Qoder session and drops meta messages", async () => {
 
   assert.equal(session.agent, "qoder");
   assert.equal(session.sessionId, "qoder-session");
+  assert.equal(session.title, "Demo Qoder Session");
   assert.equal(session.messages.length, 2);
   assert.equal(session.messages[0].text, "你好");
   assert.equal(session.messages[1].role, "assistant");
@@ -64,6 +66,18 @@ test("parseSession reads a Cursor transcript", async () => {
   assert.match(session.messages[0].text, /看看 \.gitignore/);
 });
 
+test("parseSession reads a Claude project transcript", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const session = await parseSession({ sessionPath, agent: "claude" });
+
+  assert.equal(session.agent, "claude");
+  assert.equal(session.sessionId, "claude-session");
+  assert.equal(session.cwd, "/workspace/claude-demo");
+  assert.equal(session.messages.length, 3);
+  assert.equal(session.messages[0].role, "user");
+  assert.match(session.messages[1].text, /你好/);
+});
+
 test("renderHandoff produces a generic cross-agent handoff", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
   const output = await renderHandoff({ sessionPath, agent: "qoder", target: "cursor" });
@@ -71,8 +85,22 @@ test("renderHandoff produces a generic cross-agent handoff", async () => {
   assert.match(output, /# Agent Session Handoff/);
   assert.match(output, /Source Agent: qoder/);
   assert.match(output, /Target Agent: cursor/);
+  assert.match(output, /Conversation Title: Demo Qoder Session/);
+  assert.match(output, /## Suggested Next Step/);
   assert.match(output, /\[user\] 你好/);
   assert.doesNotMatch(output, /<command-message>/);
+});
+
+test("renderStartPrompt points the next agent at the handoff file", async () => {
+  const prompt = await renderStartPrompt({
+    handoffPath: "./agent-handoff-demo.md",
+    target: "cursor",
+  });
+
+  assert.match(prompt, /You are continuing work from another coding agent\./);
+  assert.match(prompt, /First, read this handoff file:/);
+  assert.match(prompt, /\.\/agent-handoff-demo\.md/);
+  assert.match(prompt, /Treat the handoff as context, not ground truth\./);
 });
 
 test("findLatestSession returns the newest jsonl file for a given agent root", async () => {
@@ -102,6 +130,28 @@ test("findLatestSession prefers sessions whose cwd matches the current directory
   const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "codex" });
 
   assert.equal(path.basename(latest), "rollout-2026-03-19T11-00-00-workspace-a.jsonl");
+});
+
+test("findLatestSession prefers Claude sessions whose cwd matches the current directory", async () => {
+  const currentDir = await makeTempDir("claude-workspace-a");
+  const otherDir = await makeTempDir("claude-workspace-b");
+  const sessionsRoot = await makeTempDir("claude-projects");
+  const targetDir = path.join(sessionsRoot, "-workspace");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "aaa.jsonl"),
+    `{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hi"},"uuid":"1","timestamp":"2026-03-20T10:00:00.000Z","cwd":"${otherDir}","sessionId":"aaa","version":"2.1.79"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "bbb.jsonl"),
+    `{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hi"},"uuid":"1","timestamp":"2026-03-20T11:00:00.000Z","cwd":"${currentDir}","sessionId":"bbb","version":"2.1.79"}\n`,
+    "utf8",
+  );
+
+  const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "claude" });
+
+  assert.equal(path.basename(latest), "bbb.jsonl");
 });
 
 test("findLatestSession prefers the Cursor project derived from the current directory", async () => {
@@ -158,12 +208,51 @@ test("cli --stdout prints a handoff from an explicit qodercli alias", async () =
   assert.equal(result.stderr, "");
 });
 
+test("cli writes both a handoff file and a start prompt file", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const outDir = await makeTempDir("handoff-out");
+  const handoffPath = path.join(outDir, "handoff.md");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "--agent", "qoder", "--session", sessionPath, "--target", "cursor", "--out", handoffPath],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const promptPath = path.join(outDir, "handoff.start.txt");
+  const handoff = await fs.readFile(handoffPath, "utf8");
+  const prompt = await fs.readFile(promptPath, "utf8");
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /handoff\.md/);
+  assert.match(result.stdout, /handoff\.start\.txt/);
+  assert.equal(result.stderr, "");
+  assert.match(handoff, /Conversation Title: Demo Qoder Session/);
+  assert.match(prompt, /\.\/handoff\.md/);
+});
+
 test("cli fails clearly for unsupported agents", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
   const cliPath = path.join(__dirname, "..", "src", "cli.js");
 
   const result = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cliPath, "--agent", "claude", "--session", sessionPath, "--stdout"], {
+    const child = spawn(process.execPath, [cliPath, "--agent", "augment", "--session", sessionPath, "--stdout"], {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -183,5 +272,5 @@ test("cli fails clearly for unsupported agents", async () => {
 
   assert.equal(result.code, 1);
   assert.equal(result.stdout, "");
-  assert.match(result.stderr, /Unsupported agent: claude/);
+  assert.match(result.stderr, /Unsupported agent: augment/);
 });
