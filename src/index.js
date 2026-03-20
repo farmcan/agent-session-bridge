@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-export const supportedAgents = ["codex", "cursor", "qoder", "qodercli"];
+export const supportedAgents = ["claude", "codex", "cursor", "qoder", "qodercli"];
 
 const agentRoots = {
+  claude: path.join(os.homedir(), ".claude", "projects"),
   codex: path.join(os.homedir(), ".codex", "sessions"),
   qoder: path.join(os.homedir(), ".qoder", "projects"),
   qodercli: path.join(os.homedir(), ".qoder", "projects"),
@@ -42,8 +43,25 @@ async function readJsonl(filePath) {
     .map((line) => JSON.parse(line));
 }
 
+async function readJson(filePath) {
+  const raw = await fs.readFile(filePath, "utf8");
+  return JSON.parse(raw);
+}
+
+async function readQoderSidecar(filePath) {
+  const sidecarPath = filePath.replace(/\.jsonl$/u, "-session.json");
+  try {
+    return await readJson(sidecarPath);
+  } catch {
+    return null;
+  }
+}
+
 async function readSessionCwd(filePath, agent) {
   const items = await readJsonl(filePath);
+  if (agent === "claude") {
+    return items.find((item) => item.cwd)?.cwd ?? null;
+  }
   if (agent === "codex") {
     return items.find((item) => item.type === "session_meta")?.payload?.cwd ?? null;
   }
@@ -97,11 +115,14 @@ function parseCodex(items, sessionPath, agent) {
     sessionPath,
     sessionId: meta.id ?? path.basename(sessionPath, ".jsonl"),
     cwd: meta.cwd ?? "unknown",
+    title: null,
+    updatedAt: meta.timestamp ?? null,
     messages,
   };
 }
 
-function parseQoder(items, sessionPath, agent) {
+async function parseQoder(items, sessionPath, agent) {
+  const sidecar = await readQoderSidecar(sessionPath);
   const first = items.find((item) => !item.isMeta) ?? items[0] ?? {};
   const messages = items
     .filter((item) => !item.isMeta)
@@ -121,8 +142,10 @@ function parseQoder(items, sessionPath, agent) {
   return {
     agent,
     sessionPath,
-    sessionId: first.sessionId ?? path.basename(sessionPath, ".jsonl"),
-    cwd: first.cwd ?? "unknown",
+    sessionId: sidecar?.id ?? first.sessionId ?? path.basename(sessionPath, ".jsonl"),
+    cwd: sidecar?.working_dir ?? first.cwd ?? "unknown",
+    title: sidecar?.title ?? null,
+    updatedAt: sidecar?.updated_at ?? null,
     messages,
   };
 }
@@ -147,11 +170,61 @@ function parseCursor(items, sessionPath, agent) {
     sessionPath,
     sessionId: path.basename(sessionPath, ".jsonl"),
     cwd: "unknown",
+    title: null,
+    updatedAt: null,
+    messages,
+  };
+}
+
+function extractClaudeText(content) {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .filter((block) => block?.type === "text")
+    .map((block) => block.text)
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function parseClaude(items, sessionPath, agent) {
+  const first = items.find((item) => item.sessionId) ?? {};
+  const messages = items
+    .map((item) => {
+      if (item.type !== "user" && item.type !== "assistant") {
+        return null;
+      }
+
+      const role = item.message?.role ?? item.type;
+      const text = extractClaudeText(item.message?.content);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        role,
+        text,
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    agent,
+    sessionPath,
+    sessionId: first.sessionId ?? path.basename(sessionPath, ".jsonl"),
+    cwd: first.cwd ?? "unknown",
+    title: null,
+    updatedAt: first.timestamp ?? null,
     messages,
   };
 }
 
 const parsers = {
+  claude: parseClaude,
   codex: parseCodex,
   qoder: parseQoder,
   qodercli: parseQoder,
@@ -167,6 +240,9 @@ function normalizeAgent(agent) {
 
 export function detectAgent(sessionPath) {
   const value = sessionPath.toLowerCase();
+  if (value.includes("/.claude/")) {
+    return "claude";
+  }
   if (value.includes("/.codex/")) {
     return "codex";
   }
