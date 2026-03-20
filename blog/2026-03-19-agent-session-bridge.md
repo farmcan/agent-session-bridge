@@ -22,10 +22,26 @@
 这样就能把：
 
 - `codex -> cursor`
+- `claude -> codex`
 - `cursor -> codex`
 - `qoder -> codex`
 
 这种切换动作变成一个很轻的本地命令，而不是重新写一遍 prompt。
+
+现在命令层也压短了，直接支持这种写法：
+
+```bash
+agent-session-bridge x2r
+agent-session-bridge c2x
+agent-session-bridge c x --split-recent 1
+```
+
+这里的缩写是：
+
+- `x = codex`
+- `c = claude`
+- `r = cursor`
+- `q = qoder`
 
 ## 实现
 
@@ -62,6 +78,40 @@
 
 当然，也支持手动指定某个 session 文件。
 
+另外最近又加了一条很实际的能力：`split`。
+
+一个长 session 里经常会混进多个需求，或者执行中突然冒出一个新 idea。  
+这时候更合理的不是继续把东西都塞进原 session，而是直接切一段新的 handoff 出来。
+
+当前第一版的规则很简单：
+
+- `--split-recent N`
+- 保留最近 `N` 个真实 user turn 以及它们之后的内容
+- 自动忽略类似 `[Request interrupted by user]` 这种中断占位消息
+
+这样做的价值不只是 workflow 更干净，还有一个很实际的收益：
+
+- 下一个 agent 吃进去的上下文更小
+- 无关历史更少
+- token 开销更低
+
+对应地，`fork` 现在也有了第一版最小实现。
+
+做法也很直接：
+
+- 先选当前 session
+- 如果需要，先 `--split-recent`
+- 再用 `--fork "新 idea"` 追加一条新的 user 请求
+- 输出一个新的 handoff bundle 给下一条工作线
+
+例如：
+
+```bash
+agent-session-bridge c x --split-recent 1 --fork "把这个新 idea 单独拉出来，做成 fork"
+```
+
+这不是在复制完整运行时状态，而是在把“当前还需要的上下文 + 一个新的任务意图”打包成一条新的工作线。
+
 ### 2. 做 adapter 归一化
 
 不同 agent 的 session 文件结构不一样，所以给每种来源做一个 parser / adapter。
@@ -82,6 +132,24 @@
 这样来源层和输出层就解耦了。
 
 以后如果要继续加 `Claude` 或 `Augment`，只要新增 adapter，不需要重写整条链路。
+
+### 2.5. 实验性的 `claude -> codex resume`
+
+后面又往前走了一步：不是只生成 handoff，还可以把 `Claude` 的可见对话直接转成一份 Codex 风格的 session 文件。
+
+现在这个实验能力的边界是：
+
+- 来源先只做 `Claude`
+- 目标是生成一个 Codex `jsonl` session
+- 里面主要写 `session_meta` 和 `response_item`
+- 不尝试伪造 tool calls、reasoning 或隐藏运行态
+
+这件事有意义，是因为我已经做过黑盒验证：
+
+- `codex resume` 的发现逻辑会认这种文件
+- `codex exec resume` 也会把写进去的 `response_item` 历史当成恢复上下文
+
+所以这个方向不是概念验证，而是已经能通一条最小链路。
 
 ### 3. 生成 handoff 和启动 prompt
 
@@ -134,20 +202,17 @@ Conversation Title: ...
 
 **把一个 agent 的本地 session 转成另一个 agent 能立即接上的 handoff。**
 
-我现在自己最顺手的用法就是直接配 alias：
+如果目标是 `Codex`，现在还多了一条实验路径：
+
+**把 `Claude` session 直接转成一个可 `resume` 的 Codex session。**
+
+我现在更倾向直接用内建短命令：
 
 ```bash
-alias c2r='agent-session-bridge --agent codex --target cursor --copy'
-alias r2c='agent-session-bridge --agent cursor --target codex --copy'
-alias q2c='agent-session-bridge --agent qoder --target codex --copy'
-```
-
-这样日常切换 agent 时，基本就是：
-
-```bash
-c2r
-r2c
-q2c
+agent-session-bridge x2r
+agent-session-bridge r2x
+agent-session-bridge c2x
+agent-session-bridge c x --split-recent 1
 ```
 
 这就是这个项目最核心的实现目标：

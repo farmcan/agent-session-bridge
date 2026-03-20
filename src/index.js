@@ -78,6 +78,10 @@ function cleanText(text) {
     .trim();
 }
 
+function isCodexBootstrapMessage(role, text) {
+  return role === "user" && text.trimStart().startsWith("# AGENTS.md instructions for ");
+}
+
 function joinBlocks(blocks = []) {
   return blocks
     .map((block) => block.text)
@@ -98,8 +102,16 @@ function parseCodex(items, sessionPath, agent) {
         return null;
       }
 
+      if (item.payload.role === "developer" || item.payload.role === "system") {
+        return null;
+      }
+
       const text = joinBlocks(item.payload.content);
       if (!text) {
+        return null;
+      }
+
+      if (isCodexBootstrapMessage(item.payload.role, text)) {
         return null;
       }
 
@@ -231,11 +243,19 @@ const parsers = {
   cursor: parseCursor,
 };
 
+const agentAliases = {
+  c: "claude",
+  x: "codex",
+  q: "qoder",
+  r: "cursor",
+};
+
 function normalizeAgent(agent) {
   if (!agent) {
     return null;
   }
-  return agent.toLowerCase();
+  const normalized = agent.toLowerCase();
+  return agentAliases[normalized] ?? normalized;
 }
 
 export function detectAgent(sessionPath) {
@@ -289,6 +309,42 @@ export async function findLatestSession(rootDir = agentRoots.codex, options = {}
   return matches.at(-1) ?? sortedFiles.at(-1);
 }
 
+function fileLooksLikeSessionId(filePath, sessionId) {
+  const baseName = path.basename(filePath, ".jsonl");
+  if (baseName === sessionId) {
+    return true;
+  }
+  return baseName.endsWith(`-${sessionId}`);
+}
+
+export async function findSessionById(rootDir = agentRoots.codex, options = {}) {
+  const { sessionId } = options;
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+
+  const files = await walk(rootDir);
+  if (files.length === 0) {
+    throw new Error(`No session files found in ${rootDir}`);
+  }
+
+  const agent = normalizeAgent(options.agent) ?? detectAgent(rootDir) ?? detectAgent(files[0]);
+  for (const filePath of files.sort()) {
+    if (fileLooksLikeSessionId(filePath, sessionId)) {
+      return filePath;
+    }
+  }
+
+  for (const filePath of files.sort()) {
+    const session = await parseSession({ sessionPath: filePath, agent });
+    if (session.sessionId === sessionId) {
+      return filePath;
+    }
+  }
+
+  throw new Error(`Session not found: ${sessionId}`);
+}
+
 export async function parseSession({ sessionPath, agent }) {
   const resolvedAgent = normalizeAgent(agent) ?? detectAgent(sessionPath);
   if (!resolvedAgent || !parsers[resolvedAgent]) {
@@ -299,8 +355,53 @@ export async function parseSession({ sessionPath, agent }) {
   return parsers[resolvedAgent](items, sessionPath, resolvedAgent);
 }
 
+export function splitSession(session, { recentUserTurns = 1 } = {}) {
+  const targetTurns = Number(recentUserTurns);
+  if (!Number.isInteger(targetTurns) || targetTurns < 1) {
+    throw new Error("split recent turns must be a positive integer");
+  }
+
+  let seenUserTurns = 0;
+  let startIndex = session.messages.length;
+  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+    if (isSkippableSplitUserMessage(session.messages[index])) {
+      continue;
+    }
+
+    if (session.messages[index].role === "user") {
+      seenUserTurns += 1;
+      startIndex = index;
+      if (seenUserTurns === targetTurns) {
+        break;
+      }
+    }
+  }
+
+  return {
+    ...session,
+    messages: session.messages.slice(startIndex).filter((message) => !isSkippableSplitUserMessage(message)),
+  };
+}
+
+export function forkSession(session, { prompt } = {}) {
+  const forkPrompt = String(prompt ?? "").trim();
+  if (!forkPrompt) {
+    throw new Error("fork prompt must be a non-empty string");
+  }
+
+  return {
+    ...session,
+    messages: [
+      ...session.messages,
+      { role: "user", text: forkPrompt },
+    ],
+  };
+}
+
 function buildSuggestedNextStep(session) {
-  const lastUserMessage = [...session.messages].reverse().find((message) => message.role === "user");
+  const lastUserMessage = [...session.messages]
+    .reverse()
+    .find((message) => message.role === "user" && !isSkippableSplitUserMessage(message));
   if (!lastUserMessage) {
     return "Read the transcript, inspect the current repository state, and continue from the most likely unfinished point.";
   }
@@ -308,8 +409,78 @@ function buildSuggestedNextStep(session) {
   return `Start by checking the latest user request: "${lastUserMessage.text}". Verify it against the current repository, then continue from the most likely unfinished point.`;
 }
 
-export async function renderHandoff({ sessionPath, agent, target = "cursor" }) {
+function normalizeIsoForCodexFile(timestamp) {
+  return timestamp.replace(/:/gu, "-").replace(/\./gu, "-");
+}
+
+function toCodexMessageContent(message) {
+  if (message.role === "assistant") {
+    return [{ type: "output_text", text: message.text }];
+  }
+  return [{ type: "input_text", text: message.text }];
+}
+
+function isSkippableSplitUserMessage(message) {
+  if (message.role !== "user") {
+    return false;
+  }
+
+  const normalized = message.text.trim().toLowerCase();
+  return (
+    normalized.length === 0 ||
+    normalized === "[request interrupted by user]" ||
+    normalized === "[interrupted by user]"
+  );
+}
+
+export async function renderCodexResumeExport({
+  sessionPath,
+  agent,
+  sessionId,
+  timestamp,
+  cliVersion = "0.111.0",
+}) {
   const session = await parseSession({ sessionPath, agent });
+  const exportedSessionId = sessionId ?? session.sessionId;
+  const exportedTimestamp = timestamp ?? session.updatedAt ?? new Date().toISOString();
+  const fileName = `rollout-${normalizeIsoForCodexFile(exportedTimestamp)}-${exportedSessionId}.jsonl`;
+  const rows = [
+    {
+      timestamp: exportedTimestamp,
+      type: "session_meta",
+      payload: {
+        id: exportedSessionId,
+        timestamp: exportedTimestamp,
+        cwd: session.cwd,
+        originator: "codex_cli_rs",
+        cli_version: cliVersion,
+        source: "cli",
+        model_provider: "openai",
+        base_instructions: {
+          text: "You are Codex, a coding agent based on GPT-5.",
+        },
+      },
+    },
+    ...session.messages.map((message) => ({
+      timestamp: exportedTimestamp,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: message.role,
+        content: toCodexMessageContent(message),
+      },
+    })),
+  ];
+
+  return {
+    sessionId: exportedSessionId,
+    fileName,
+    content: `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+  };
+}
+
+export async function renderHandoff({ sessionPath, agent, target = "cursor", session: providedSession = null }) {
+  const session = providedSession ?? (await parseSession({ sessionPath, agent }));
   const transcript = session.messages.map((message) => `[${message.role}] ${message.text}`).join("\n\n");
   const metadata = [];
   if (session.title) {

@@ -1,12 +1,27 @@
 # agent-session-bridge
 
-Move local coding-agent context from one agent to another in one command.
+Move local coding-agent context between `Codex`, `Claude`, `Cursor`, and `Qoder` without re-explaining the task.
 
-`agent-session-bridge` reads local session data from `Codex`, `Claude`, `Cursor`, `Qoder`, and `QoderCLI`, normalizes the transcript, and writes a handoff bundle for the next agent.
+`agent-session-bridge` reads local session data, prefers the session for the current directory, and writes a handoff bundle or an experimental Codex-resumable session file.
 
 ## Why
 
-When you run multiple coding agents in parallel, context gets trapped inside each tool's local session store. This project gives you the shortest path from one local agent session to another agent handoff.
+This project comes from a very specific multi-agent workflow:
+
+- one agent is already deep in a task, but another agent should continue from the same context
+- one long session actually contains multiple independent tasks and should be split into separate work lines
+- a new idea appears while the current session is still running, and the cleanest move is to fork a new session instead of polluting the current one
+
+Those are the three primitives this project is aiming at:
+
+1. `handoff`: move context from one agent to another
+2. `split`: break one session into multiple task-specific sessions
+3. `fork`: branch a new session from the current context when a new idea appears
+
+Today, the implemented path is mostly `handoff`, plus an experimental `claude -> codex resume` export.
+`split` and `fork` are intentional product directions, not random future ideas.
+
+`split` also has a direct token benefit: once a long mixed session is broken into smaller work lines, each follow-up run carries less irrelevant history, which means less context bloat and lower token usage.
 
 ## Support Matrix
 
@@ -21,12 +36,25 @@ When you run multiple coding agents in parallel, context gets trapped inside eac
 
 ```bash
 npm install
+npm link
 ```
 
-Or run it directly after clone:
+Then use the global command:
 
 ```bash
-node src/cli.js
+agent-session-bridge
+```
+
+## Quick Start
+
+Shortest paths:
+
+```bash
+agent-session-bridge x2r
+agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
+agent-session-bridge x2r --json
+agent-session-bridge c2x --export codex-session
+agent-session-bridge c x --split-recent 1 --copy
 ```
 
 ## Example
@@ -62,16 +90,27 @@ Start by checking the latest user request...
 ## Usage
 
 ```bash
-node src/cli.js
-node src/cli.js --agent claude --stdout
-node src/cli.js --agent codex --stdout
-node src/cli.js --agent qoder --session ~/.qoder/projects/.../session.jsonl --stdout
-node src/cli.js --agent cursor --session ~/.cursor/projects/.../agent-transcripts/...jsonl --stdout
-node src/cli.js --agent qodercli --target cursor --stdout
-node src/cli.js --copy
-node src/cli.js --cursor
-node src/cli.js --out ./handoff.md
+agent-session-bridge x2r
+agent-session-bridge r2x
+agent-session-bridge c2x
+agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
+agent-session-bridge x2r --json
+agent-session-bridge x r --stdout
+agent-session-bridge c x --copy
+agent-session-bridge c x --split-recent 1 --out ./idea-handoff.md
+agent-session-bridge --agent qoder --session ~/.qoder/projects/.../session.jsonl --stdout
+agent-session-bridge --agent cursor --session ~/.cursor/projects/.../agent-transcripts/...jsonl --stdout
+agent-session-bridge c2x --export codex-session
+agent-session-bridge --copy
+agent-session-bridge --cursor
+agent-session-bridge --out ./handoff.md
 ```
+
+Useful automation flags:
+
+- `--session-id <id>`: resolve a session directly when you already have the id
+- `--json`: print machine-readable metadata for generated files or stdout content
+- `--root <dir>`: override the default session root when testing or scripting
 
 By default, the CLI does not just pick the global latest session. It first tries to find the newest session for your current working directory, then falls back to the latest session for that agent if nothing matches.
 
@@ -97,19 +136,33 @@ This is the recommended workflow:
 
 When you pass `--copy`, the CLI copies the startup prompt, not the raw transcript.
 
-If you use this a lot, shell aliases are the best workflow. Add these to `~/.zshrc`:
+Built-in route aliases:
+
+- `x2r`: `codex -> cursor`
+- `r2x`: `cursor -> codex`
+- `q2x`: `qoder -> codex`
+- `x2q`: `codex -> qoder`
+- `c2x`: `claude -> codex`
+- `x2c`: `codex -> claude`
+- `c2r`: `claude -> cursor`
+- `r2c`: `cursor -> claude`
+- `q2r`: `qoder -> cursor`
+- `r2q`: `cursor -> qoder`
+
+Agent shorthands:
+
+- `x`: `codex`
+- `c`: `claude`
+- `r`: `cursor`
+- `q`: `qoder`
+
+If you still want shell aliases, add these to `~/.zshrc`:
 
 ```bash
-alias c2r='agent-session-bridge --agent codex --target cursor --copy'
-alias r2c='agent-session-bridge --agent cursor --target codex --copy'
-alias q2c='agent-session-bridge --agent qoder --target codex --copy'
-```
-
-Before using the aliases, install the CLI globally from this repo:
-
-```bash
-npm install
-npm link
+alias x2r='agent-session-bridge x2r --copy'
+alias r2x='agent-session-bridge r2x --copy'
+alias q2x='agent-session-bridge q2x --copy'
+alias c2x='agent-session-bridge c2x --copy'
 ```
 
 Reload your shell:
@@ -118,19 +171,20 @@ Reload your shell:
 source ~/.zshrc
 ```
 
-Then you can run:
+Then you can run the shell aliases directly:
 
 ```bash
-c2r
-r2c
-q2c
+x2r
+r2x
+q2x
+c2x
 ```
 
-To verify that `c2r` is really working, run a stdout-only version first:
+To verify that `x2r` is really working, run a stdout-only version first:
 
 ```bash
-alias c2r='agent-session-bridge --agent codex --target cursor --stdout'
-c2r | sed -n '1,12p'
+alias x2r='agent-session-bridge x2r --stdout'
+x2r | sed -n '1,12p'
 ```
 
 If the alias is working, you should see output like:
@@ -147,8 +201,44 @@ Source File: ~/.codex/sessions/...
 Then switch back to the clipboard version:
 
 ```bash
-alias c2r='agent-session-bridge --agent codex --target cursor --copy'
+alias x2r='agent-session-bridge x2r --copy'
 ```
+
+## Split A Session
+
+Use `split` when one long session has drifted into multiple tasks, or when a new idea appears mid-run and should become its own smaller thread.
+
+The current implementation is intentionally simple: `--split-recent N` keeps the most recent `N` real user turns and everything after them.
+It also drops interruption placeholders such as `[Request interrupted by user]`.
+
+```bash
+agent-session-bridge c x --split-recent 1 --out ./idea-handoff.md
+agent-session-bridge x r --split-recent 2 --copy
+```
+
+This is the first step toward `fork`. It already helps in practice because the next agent sees a smaller context window, carries less irrelevant history, and spends fewer tokens.
+
+## Fork A Session
+
+Use `fork` when you are still in the middle of one thread, but a new idea should become a separate next step instead of polluting the current session.
+
+The first implementation is mechanical on purpose:
+
+- keep the current session context
+- optionally trim it first with `--split-recent`
+- append one new user idea with `--fork`
+- generate a fresh handoff bundle for the new branch
+
+```bash
+agent-session-bridge --agent x --fork "另外开一条线，研究 session split 的设计" --copy
+printf '把这条新想法拆出去，单独研究 prompt 和 fork-file 的体验\n' > ./fork.txt
+agent-session-bridge --agent x --fork-file ./fork.txt --copy
+agent-session-bridge c x --split-recent 1 --fork "把这个新 idea 单独拉出来，做成 fork" --out ./fork-handoff.md
+```
+
+This is useful for both workflow and token control: the new branch keeps only the context you actually want, and the next run does not have to drag the whole overloaded session forward.
+
+`--fork` and `--fork-file` are intentionally mutually exclusive.
 
 The default command writes a file like:
 
@@ -156,6 +246,50 @@ The default command writes a file like:
 ./agent-handoff-rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.md
 ./agent-handoff-rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.start.txt
 ```
+
+## Experimental Codex Resume Export
+
+There is now an experimental export path for `claude -> codex resume`.
+
+```bash
+agent-session-bridge claude codex --export codex-session
+agent-session-bridge --agent claude --session ~/.claude/projects/.../session.jsonl --export codex-session
+```
+
+This writes a Codex-shaped `jsonl` session file that you can place under `~/.codex/sessions/...` and resume with `codex resume <session-id>`.
+
+Current scope:
+
+- implemented for `claude`
+- emits `session_meta` plus `response_item` user/assistant messages
+- intentionally does not try to recreate tool calls, reasoning, or hidden runtime state
+
+This is experimental on purpose. The regular handoff bundle is still the default workflow.
+
+## Product Direction
+
+The real product shape is not just "export a transcript".
+
+It is a local session workflow layer for coding agents:
+
+- `handoff`: agent A -> agent B
+- `split`: one overloaded session -> multiple cleaner sessions
+- `fork`: current session -> new branch for a fresh idea
+
+If you also work with multiple agents in parallel, these are usually the real missing controls.
+The current repository already covers the first one. The other two are part of the intended design space.
+And among them, `split` is also the most obvious context-compression primitive: it reduces noise, narrows the active task, and saves tokens for the next run.
+
+## Use As A Skill
+
+There is also a thin skill wrapper in [skills/agent-session-bridge/SKILL.md](/Users/levi/wrksp/agent-session-bridge/skills/agent-session-bridge/SKILL.md).
+
+The intended split is:
+
+- CLI: the stable backend
+- skill: the agent-facing wrapper that decides which command to run
+
+The skill should generate files and return paths. It should not paste long transcript content into the live conversation unless the user explicitly asks for it.
 
 ## How It Works
 
@@ -165,25 +299,46 @@ The default command writes a file like:
 - `Qoder` / `QoderCLI`: also reads the sidecar `*-session.json` for title, working directory, and update time
 - Normalizes messages into one shared transcript format
 - Produces a Markdown handoff file plus a startup prompt for the target agent
+- Can also export an experimental Codex-resumable session from Claude transcripts
 
-## Development
+## Verification
 
 ```bash
 npm test
 ```
 
+Expected result:
+
+- `node --test` passes
+
 Real smoke tests I used on this machine:
 
 ```bash
-node src/cli.js --agent claude --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --stdout
-node src/cli.js --agent codex --session "$(find ~/.codex/sessions -type f | sort | tail -n 1)" --stdout
-node src/cli.js --agent qoder --session "$(find ~/.qoder/projects -type f -name '*.jsonl' | sort | tail -n 1)" --stdout
-node src/cli.js --agent cursor --session "$(find ~/.cursor/projects -type f -path '*/agent-transcripts/*/*.jsonl' | sort | tail -n 1)" --stdout
+agent-session-bridge x2r --session "$(find ~/.codex/sessions -type f -name '*.jsonl' | sort | tail -n 1)" --out /tmp/codex-to-cursor.md
+agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
+agent-session-bridge x2r --json
+agent-session-bridge c x --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --split-recent 1 --fork "把这个新 idea 单独拉出来，做成 fork" --out /tmp/claude-fork.md
+agent-session-bridge c2x --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --export codex-session --out /tmp/claude-to-codex.jsonl
+printf '把这条新想法拆出去，单独研究 prompt 和 fork-file 的体验\n' > /tmp/fork.txt
+agent-session-bridge --agent x --session "$(find ~/.codex/sessions -type f -name '*.jsonl' | sort | tail -n 1)" --fork-file /tmp/fork.txt --out /tmp/fork-file.md
 ```
+
+What to check:
+
+- handoff mode writes two files: `*.md` and `*.start.txt`
+- `--copy` copies the `*.start.txt` content, not the raw transcript
+- `--session-id` should resolve the same session without needing a full file path
+- `--json` should print stable metadata fields like `sessionId`, `sessionPath`, `outputPath`, and `promptPath`
+- Codex handoff should start from the real task, not `AGENTS.md` bootstrap noise
+- `--split-recent 1` should keep only the most recent real user turn
+- `--fork` and `--fork-file` should make the new idea become the last user request
+- `--export codex-session` should write `session_meta` plus `response_item` rows
 
 ## Roadmap
 
 - Support more agent formats beyond the current adapter set
+- Add session `split` workflows for breaking one transcript into multiple work lines
+- Add session `fork` workflows for branching a new session from current context
 - Improve transcript summarization for long sessions
 - Offer richer target-specific startup prompts
 
