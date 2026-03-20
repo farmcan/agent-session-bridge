@@ -33,7 +33,6 @@
 ### Skill
 
 - Add `agents/openai.yaml`
-- Make the skill return structured results, not just prose
 - Add one real skill verification scenario
 
 ### Cleanup

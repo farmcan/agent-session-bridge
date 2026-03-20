@@ -12,8 +12,9 @@ Use the local `agent-session-bridge` CLI as a thin backend. Prefer generating fi
 1. Infer source and target agents from the user's request.
 2. Prefer the current directory's matching session unless the user gives an explicit session path.
 3. Generate a handoff bundle first, and prefer `--json` so the caller gets stable file paths.
-4. Return the generated file paths and tell the next agent to read the `.start.txt` and `.md`.
-5. Use experimental `codex-session` export only when the user explicitly wants `codex resume`.
+4. Read `outputPath`, `promptPath`, `sessionId`, and `sessionPath` from the JSON result.
+5. Return the generated file paths and tell the next agent to read the `.start.txt` and `.md`.
+6. Use experimental `codex-session` export only when the user explicitly wants `codex resume`.
 
 ## Commands
 
@@ -36,6 +37,34 @@ agent-session-bridge --agent c --session /path/to/session.jsonl --export codex-s
   - `agent-handoff-*.start.txt`
 - `--copy` copies the startup prompt, not the transcript.
 - `--json` returns stable metadata such as `sessionId`, `sessionPath`, `outputPath`, and `promptPath`, not the full transcript body.
+
+## End-To-End Example
+
+If the user asks to move the current Codex session into Cursor, prefer:
+
+```bash
+agent-session-bridge x2r --json
+```
+
+The result shape should look like:
+
+```json
+{
+  "mode": "handoff",
+  "sourceAgent": "x",
+  "targetAgent": "r",
+  "sessionId": "...",
+  "sessionPath": "...",
+  "outputPath": ".../agent-handoff-....md",
+  "promptPath": ".../agent-handoff-....start.txt"
+}
+```
+
+Then return:
+
+- `outputPath`
+- `promptPath`
+- one short instruction: give `promptPath` to the next agent first
 
 ## When To Use Codex Resume Export
 
