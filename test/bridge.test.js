@@ -733,6 +733,71 @@ test("cli can emit machine-readable json for codex session export", async () => 
   assert.match(payload.fileName, /^rollout-/);
 });
 
+test("cli can write handoff files into an explicit output directory", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const outDir = await makeTempDir("output-dir-handoff");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "x2r", "--session", sessionPath, "--output-dir", outDir, "--json"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(path.dirname(payload.outputPath), outDir);
+  assert.equal(path.dirname(payload.promptPath), outDir);
+});
+
+test("cli can write codex exports into an explicit output directory", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const outDir = await makeTempDir("output-dir-export");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "c2x", "--session", sessionPath, "--export", "codex-session", "--output-dir", outDir, "--json"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(path.dirname(payload.outputPath), outDir);
+});
+
 test("cli can split a session into a smaller handoff bundle", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
   const cliPath = path.join(__dirname, "..", "src", "cli.js");

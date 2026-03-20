@@ -53,6 +53,7 @@ Shortest paths:
 agent-session-bridge x2r
 agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
 agent-session-bridge x2r --json
+agent-session-bridge x2r --output-dir /tmp/bridge-out --json
 agent-session-bridge c2x --export codex-session
 agent-session-bridge c x --split-recent 1 --copy
 ```
@@ -95,6 +96,7 @@ agent-session-bridge r2x
 agent-session-bridge c2x
 agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
 agent-session-bridge x2r --json
+agent-session-bridge x2r --output-dir /tmp/bridge-out --json
 agent-session-bridge x r --stdout
 agent-session-bridge c x --copy
 agent-session-bridge c x --split-recent 1 --out ./idea-handoff.md
@@ -111,6 +113,7 @@ Useful automation flags:
 - `--session-id <id>`: resolve a session directly when you already have the id
 - `--json`: print machine-readable metadata for generated files or stdout content
 - `--root <dir>`: override the default session root when testing or scripting
+- `--output-dir <dir>`: keep the default generated file names, but write them into a different directory
 
 By default, the CLI does not just pick the global latest session. It first tries to find the newest session for your current working directory, then falls back to the latest session for that agent if nothing matches.
 
@@ -317,6 +320,7 @@ Real smoke tests I used on this machine:
 agent-session-bridge x2r --session "$(find ~/.codex/sessions -type f -name '*.jsonl' | sort | tail -n 1)" --out /tmp/codex-to-cursor.md
 agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
 agent-session-bridge x2r --json
+agent-session-bridge x2r --output-dir /tmp/bridge-out --json
 agent-session-bridge c x --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --split-recent 1 --fork "把这个新 idea 单独拉出来，做成 fork" --out /tmp/claude-fork.md
 agent-session-bridge c2x --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --export codex-session --out /tmp/claude-to-codex.jsonl
 printf '把这条新想法拆出去，单独研究 prompt 和 fork-file 的体验\n' > /tmp/fork.txt
@@ -329,6 +333,7 @@ What to check:
 - `--copy` copies the `*.start.txt` content, not the raw transcript
 - `--session-id` should resolve the same session without needing a full file path
 - `--json` should print stable metadata fields like `sessionId`, `sessionPath`, `outputPath`, and `promptPath`
+- `--output-dir` should keep the generated filenames but place them under the directory you gave it
 - Codex handoff should start from the real task, not `AGENTS.md` bootstrap noise
 - `--split-recent 1` should keep only the most recent real user turn
 - `--fork` and `--fork-file` should make the new idea become the last user request

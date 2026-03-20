@@ -11,7 +11,7 @@ Use the local `agent-session-bridge` CLI as a thin backend. Prefer generating fi
 
 1. Infer source and target agents from the user's request.
 2. Prefer the current directory's matching session unless the user gives an explicit session path.
-3. Generate a handoff bundle first.
+3. Generate a handoff bundle first, and prefer `--json` so the caller gets stable file paths.
 4. Return the generated file paths and tell the next agent to read the `.start.txt` and `.md`.
 5. Use experimental `codex-session` export only when the user explicitly wants `codex resume`.
 
@@ -20,20 +20,21 @@ Use the local `agent-session-bridge` CLI as a thin backend. Prefer generating fi
 Use the shortest command that fits:
 
 ```bash
-agent-session-bridge c2r
-agent-session-bridge codex cursor --copy
-agent-session-bridge claude codex --stdout
-agent-session-bridge --agent claude --session /path/to/session.jsonl --export codex-session
+agent-session-bridge x2r --json
+agent-session-bridge x r --copy --json
+agent-session-bridge c x --stdout --json
+agent-session-bridge --agent c --session /path/to/session.jsonl --export codex-session --json
 ```
 
 ## Defaults
 
-- `c2r`, `r2c`, `q2c`, `c2q`, `cl2c`, `c2cl` are built-in route aliases.
+- `x2r`, `r2x`, `q2x`, `x2q`, `c2x`, `x2c`, `c2r`, `r2c`, `q2r`, `r2q` are built-in route aliases.
 - `agent-session-bridge <source> <target>` is supported.
 - Default output is a two-file handoff bundle:
   - `agent-handoff-*.md`
   - `agent-handoff-*.start.txt`
 - `--copy` copies the startup prompt, not the transcript.
+- `--json` returns stable metadata such as `sessionId`, `sessionPath`, `outputPath`, and `promptPath`.
 
 ## When To Use Codex Resume Export
 

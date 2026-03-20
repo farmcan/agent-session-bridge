@@ -46,6 +46,7 @@ function parseArgs(argv) {
     session: null,
     sessionId: null,
     out: null,
+    outputDir: null,
     target: "cursor",
     exportFormat: null,
     splitRecent: null,
@@ -74,6 +75,9 @@ function parseArgs(argv) {
       i += 1;
     } else if (arg === "--out") {
       args.out = argv[i + 1];
+      i += 1;
+    } else if (arg === "--output-dir") {
+      args.outputDir = argv[i + 1];
       i += 1;
     } else if (arg === "--target") {
       args.target = argv[i + 1];
@@ -177,6 +181,16 @@ function emitResult(payload, asJson) {
   }
 }
 
+function resolveOutputPath(args, fallbackName) {
+  if (args.out) {
+    return args.out;
+  }
+  if (args.outputDir) {
+    return path.join(args.outputDir, fallbackName);
+  }
+  return path.join(process.cwd(), fallbackName);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   args.forkPrompt = await resolveForkPrompt(args);
@@ -231,7 +245,7 @@ async function main() {
       return;
     }
 
-    const outputPath = args.out ?? path.join(process.cwd(), exported.fileName);
+    const outputPath = resolveOutputPath(args, exported.fileName);
     await fs.writeFile(outputPath, exported.content, "utf8");
     emitResult(
       {
@@ -269,8 +283,7 @@ async function main() {
     return;
   }
 
-  const outputPath =
-    args.out ?? path.join(process.cwd(), `agent-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
+  const outputPath = resolveOutputPath(args, `agent-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
   await fs.writeFile(outputPath, output, "utf8");
   const promptPath = outputPath.replace(/\.md$/u, ".start.txt");
   const prompt = await renderStartPrompt({
