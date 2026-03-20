@@ -21,20 +21,21 @@ Use the shortest command that fits:
 
 ```bash
 agent-session-bridge x2r --json
-agent-session-bridge x r --copy --json
-agent-session-bridge c x --stdout --json
+agent-session-bridge r2x --json
+agent-session-bridge c2x --json
+agent-session-bridge q2x --json
 agent-session-bridge --agent c --session /path/to/session.jsonl --export codex-session --json
 ```
 
 ## Defaults
 
-- `x2r`, `r2x`, `q2x`, `x2q`, `c2x`, `x2c`, `c2r`, `r2c`, `q2r`, `r2q` are built-in route aliases.
+- `x2r`, `r2x`, `c2x`, and `q2x` are the built-in shortcut aliases.
 - `agent-session-bridge <source> <target>` is supported.
 - Default output is a two-file handoff bundle:
   - `agent-handoff-*.md`
   - `agent-handoff-*.start.txt`
 - `--copy` copies the startup prompt, not the transcript.
-- `--json` returns stable metadata such as `sessionId`, `sessionPath`, `outputPath`, and `promptPath`.
+- `--json` returns stable metadata such as `sessionId`, `sessionPath`, `outputPath`, and `promptPath`, not the full transcript body.
 
 ## When To Use Codex Resume Export
 

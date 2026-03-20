@@ -20,13 +20,7 @@ const routeAliases = {
   x2r: { agent: "x", target: "r" },
   r2x: { agent: "r", target: "x" },
   q2x: { agent: "q", target: "x" },
-  x2q: { agent: "x", target: "q" },
   c2x: { agent: "c", target: "x" },
-  x2c: { agent: "x", target: "c" },
-  c2r: { agent: "c", target: "r" },
-  r2c: { agent: "r", target: "c" },
-  q2r: { agent: "q", target: "r" },
-  r2q: { agent: "r", target: "q" },
 };
 
 const shorthandAgents = ["c", "x", "q", "r"];
@@ -235,7 +229,6 @@ async function main() {
             sessionId: exported.sessionId,
             sessionPath,
             fileName: exported.fileName,
-            content: exported.content,
           },
           true,
         );
@@ -273,7 +266,6 @@ async function main() {
           targetAgent: args.target,
           sessionId: session.sessionId,
           sessionPath,
-          content: output,
         },
         true,
       );

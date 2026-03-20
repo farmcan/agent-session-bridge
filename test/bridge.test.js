@@ -488,37 +488,6 @@ test("cli supports built-in route aliases like c2x", async () => {
   assert.equal(result.stderr, "");
 });
 
-test("cli supports built-in route aliases like c2r", async () => {
-  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
-  const cliPath = path.join(__dirname, "..", "src", "cli.js");
-
-  const result = await new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [cliPath, "c2r", "--session", sessionPath, "--stdout"],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      resolve({ code, stdout, stderr });
-    });
-  });
-
-  assert.equal(result.code, 0);
-  assert.match(result.stdout, /Source Agent: c/);
-  assert.match(result.stdout, /Target Agent: r/);
-  assert.equal(result.stderr, "");
-});
-
 test("cli writes both a handoff file and a start prompt file", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
   const cliPath = path.join(__dirname, "..", "src", "cli.js");
@@ -693,7 +662,8 @@ test("cli can emit machine-readable json for stdout output", async () => {
   assert.equal(result.stderr, "");
   assert.equal(payload.mode, "handoff");
   assert.equal(payload.output, "stdout");
-  assert.match(payload.content, /# Agent Session Handoff/);
+  assert.equal(payload.sessionId, "sample-session");
+  assert.equal(payload.sessionPath, sessionPath);
 });
 
 test("cli can emit machine-readable json for codex session export", async () => {
