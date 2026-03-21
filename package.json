@@ -1,7 +1,7 @@
 {
   "name": "agent-session-bridge",
   "version": "0.1.0",
-  "description": "Export local agent sessions into native Codex, Claude, and Qoder session files.",
+  "description": "Fork and bridge local agent sessions across Codex, Claude, and Qoder.",
   "type": "module",
   "main": "./src/index.js",
   "bin": {

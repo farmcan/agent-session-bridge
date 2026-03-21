@@ -4,6 +4,43 @@ Export local agent sessions into native `Codex`, `Claude`, and `Qoder` session f
 
 The CLI reads the latest session for the current working directory, normalizes it into one internal session model, then exports it into the target agent's native format.
 
+## Why It Exists
+
+`agent-session-bridge` is built around two practical workflows.
+
+1. Fork a conversation and keep the useful context.
+You can branch an existing session, trim it, append one new user message, and continue without rebuilding context from scratch.
+
+2. Bridge between agents.
+You can move a session between tools like `Claude -> Codex` or `Codex -> Claude` and keep working with a native session file instead of a pasted transcript.
+
+## Core Examples
+
+Bridge a Claude session into Codex:
+
+```bash
+agent-session-bridge c2x
+```
+
+Bridge a Codex session into Claude:
+
+```bash
+agent-session-bridge x2c
+```
+
+Fork the current Codex session into a new Codex session:
+
+```bash
+agent-session-bridge x2x
+```
+
+Fork or trim before exporting:
+
+```bash
+agent-session-bridge claude qoder --split-recent 1 --out ./tmp/split.jsonl
+agent-session-bridge claude qoder --fork "另外开一个分支，去做 session split" --out ./tmp/fork.jsonl
+```
+
 ## What It Supports
 
 | Source | Target | Default Export | Resume Hint |
@@ -26,8 +63,8 @@ npm link
 ## Quick Start
 
 ```bash
-agent-session-bridge x2c
 agent-session-bridge c2x
+agent-session-bridge x2c
 agent-session-bridge x2x
 agent-session-bridge q2x
 agent-session-bridge q2c
@@ -52,38 +89,6 @@ Agent shorthands:
 - `x`: `codex`
 - `c`: `claude`
 - `q`: `qoder`
-
-## Examples
-
-Resume a Claude conversation in Codex:
-
-```bash
-agent-session-bridge c2x
-```
-
-Resume a Codex conversation in Claude:
-
-```bash
-agent-session-bridge x2c
-```
-
-Fork the current Codex conversation into a new Codex session:
-
-```bash
-agent-session-bridge x2x
-```
-
-Export a Qoder session into Claude:
-
-```bash
-agent-session-bridge q2c
-```
-
-Export a Codex session into Qoder's session format:
-
-```bash
-agent-session-bridge x2q
-```
 
 Use explicit source and target instead of aliases:
 
@@ -197,20 +202,13 @@ It does not print a resume command yet.
 
 If you use `--out` or `--output-dir`, missing parent directories are created automatically.
 
-## Transforms
+## Forking And Trimming
 
 The export pipeline can trim or branch a conversation before writing it:
 
 - `--split-recent N`: keep only the most recent `N` real user turns and everything after them
 - `--fork "..."`: append one new user message before export
 - `--fork-file path.txt`: read that message from a file
-
-Examples:
-
-```bash
-agent-session-bridge claude qoder --split-recent 1 --out ./tmp/split.jsonl
-agent-session-bridge claude qoder --fork "另外开一个分支，去做 session split" --out ./tmp/fork.jsonl
-```
 
 ## Current Scope
 
