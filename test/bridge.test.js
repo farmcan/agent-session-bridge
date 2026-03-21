@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import os from "node:os";
 
+import { getClipboardCommandCandidates } from "../src/cli.js";
 import {
   detectAgent,
   findLatestSession,
@@ -64,8 +65,36 @@ test("cli shorthand agent names map to the expected backends", async () => {
   });
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Source Agent: c/);
-  assert.match(result.stdout, /Target Agent: x/);
+  assert.match(result.stdout, /Source Agent: claude/);
+  assert.match(result.stdout, /Target Agent: codex/);
+  assert.equal(result.stderr, "");
+});
+
+test("cli --help prints usage and exits without generating files", async () => {
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "--help"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Usage:/);
+  assert.match(result.stdout, /agent-session-bridge/);
   assert.equal(result.stderr, "");
 });
 
@@ -165,6 +194,14 @@ test("renderHandoff produces a generic cross-agent handoff", async () => {
   assert.match(output, /## Suggested Next Step/);
   assert.match(output, /\[user\] 你好/);
   assert.doesNotMatch(output, /<command-message>/);
+});
+
+test("renderHandoff normalizes shorthand agent names to full names", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const output = await renderHandoff({ sessionPath, agent: "q", target: "x" });
+
+  assert.match(output, /Source Agent: qoder/);
+  assert.match(output, /Target Agent: codex/);
 });
 
 test("renderStartPrompt points the next agent at the handoff file", async () => {
@@ -341,6 +378,26 @@ test("findLatestSession prefers Claude sessions whose cwd matches the current di
   assert.equal(path.basename(latest), "bbb.jsonl");
 });
 
+test("findLatestSession returns on the newest cwd match without reading older unrelated sessions", async () => {
+  const currentDir = await makeTempDir("codex-short-circuit-workspace");
+  const sessionsRoot = await makeTempDir("codex-short-circuit-sessions");
+  await fs.mkdir(path.join(sessionsRoot, "2026", "03"), { recursive: true });
+  await fs.writeFile(
+    path.join(sessionsRoot, "2026", "03", "aaa.jsonl"),
+    '{"type":"session_meta","payload":{"id":"aaa","cwd":"/tmp/other"}}\nnot-json\n',
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(sessionsRoot, "2026", "03", "bbb.jsonl"),
+    `{"type":"session_meta","payload":{"id":"bbb","cwd":"${currentDir}"}}\n`,
+    "utf8",
+  );
+
+  const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "codex" });
+
+  assert.equal(path.basename(latest), "bbb.jsonl");
+});
+
 test("findLatestSession prefers the Cursor project derived from the current directory", async () => {
   const currentDir = await makeTempDir("cursor-workspace-a");
   const otherDir = await makeTempDir("cursor-workspace-b");
@@ -421,8 +478,8 @@ test("cli supports shorthand positional source and target agents", async () => {
   });
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Source Agent: x/);
-  assert.match(result.stdout, /Target Agent: r/);
+  assert.match(result.stdout, /Source Agent: codex/);
+  assert.match(result.stdout, /Target Agent: cursor/);
   assert.equal(result.stderr, "");
 });
 
@@ -452,8 +509,8 @@ test("cli supports built-in route aliases like x2r", async () => {
   });
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Source Agent: x/);
-  assert.match(result.stdout, /Target Agent: r/);
+  assert.match(result.stdout, /Source Agent: codex/);
+  assert.match(result.stdout, /Target Agent: cursor/);
   assert.equal(result.stderr, "");
 });
 
@@ -483,9 +540,113 @@ test("cli supports built-in route aliases like c2x", async () => {
   });
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Source Agent: c/);
-  assert.match(result.stdout, /Target Agent: x/);
+  assert.match(result.stdout, /Source Agent: claude/);
+  assert.match(result.stdout, /Target Agent: codex/);
   assert.equal(result.stderr, "");
+});
+
+test("cli supports built-in route aliases like c2r", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "c2r", "--session", sessionPath, "--stdout"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Source Agent: claude/);
+  assert.match(result.stdout, /Target Agent: cursor/);
+  assert.equal(result.stderr, "");
+});
+
+test("cli runs correctly when invoked through a symlinked entrypoint", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const realCliPath = path.join(__dirname, "..", "src", "cli.js");
+  const tempDir = await makeTempDir("cli-symlink");
+  const symlinkPath = path.join(tempDir, "agent-session-bridge");
+
+  await fs.symlink(realCliPath, symlinkPath);
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [symlinkPath, "claude", "codex", "--export", "codex-session"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /codex resume [0-9a-f-]{36}/);
+  assert.equal(result.stderr, "");
+});
+
+test("cli supports built-in route aliases like r2c", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-cursor-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "r2c", "--session", sessionPath, "--stdout"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Source Agent: cursor/);
+  assert.match(result.stdout, /Target Agent: claude/);
+  assert.equal(result.stderr, "");
+});
+
+test("getClipboardCommandCandidates prefers platform-native clipboard tools", () => {
+  assert.deepEqual(getClipboardCommandCandidates("darwin"), [{ command: "pbcopy", args: [] }]);
+  assert.deepEqual(getClipboardCommandCandidates("win32"), [{ command: "clip", args: [] }]);
+  assert.deepEqual(getClipboardCommandCandidates("linux"), [
+    { command: "wl-copy", args: [] },
+    { command: "xclip", args: ["-selection", "clipboard"] },
+    { command: "xsel", args: ["--clipboard", "--input"] },
+  ]);
 });
 
 test("cli writes both a handoff file and a start prompt file", async () => {
@@ -558,10 +719,52 @@ test("cli can export a Claude session as a Codex resume file", async () => {
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /codex-session\.jsonl/);
+  assert.doesNotMatch(result.stdout, /codex resume claude-session/);
   assert.equal(result.stderr, "");
   assert.match(exported, /"type":"session_meta"/);
   assert.match(exported, /"type":"response_item"/);
   assert.match(exported, /"role":"assistant"/);
+});
+
+test("cli installs default codex exports into the real Codex session directory", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("codex-home");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "claude", "codex", "--session", sessionPath, "--export", "codex-session", "--json"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, HOME: fakeHome },
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "codex-session");
+  assert.equal(
+    payload.outputPath,
+    path.join(fakeHome, ".codex", "sessions", "2026", "03", "20", payload.fileName),
+  );
+  assert.equal(payload.resumeCommand, "codex resume claude-session");
+  assert.equal(await fs.readFile(payload.outputPath, "utf8").then(Boolean), true);
 });
 
 test("cli can resolve a session by session id", async () => {
@@ -625,11 +828,52 @@ test("cli can emit machine-readable json for handoff file output", async () => {
   assert.equal(result.code, 0);
   assert.equal(result.stderr, "");
   assert.equal(payload.mode, "handoff");
-  assert.equal(payload.sourceAgent, "x");
-  assert.equal(payload.targetAgent, "r");
+  assert.equal(payload.sourceAgent, "codex");
+  assert.equal(payload.targetAgent, "cursor");
   assert.equal(payload.sessionId, "sample-session");
   assert.equal(payload.outputPath, handoffPath);
   assert.equal(payload.promptPath, path.join(outDir, "handoff.start.txt"));
+});
+
+test("cli writes default handoff output under ./tmp/agent-session-bridge", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const workDir = await makeTempDir("default-handoff-cwd");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "x2r", "--session", sessionPath, "--json"],
+      { cwd: workDir, stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  const expectedOutputPath = await fs.realpath(
+    path.join(workDir, "tmp", "agent-session-bridge", "agent-handoff-sample-codex-session.md"),
+  );
+  const expectedPromptPath = await fs.realpath(
+    path.join(workDir, "tmp", "agent-session-bridge", "agent-handoff-sample-codex-session.start.txt"),
+  );
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(await fs.realpath(payload.outputPath), expectedOutputPath);
+  assert.equal(await fs.realpath(payload.promptPath), expectedPromptPath);
+  assert.equal(await fs.readFile(payload.outputPath, "utf8").then(Boolean), true);
+  assert.equal(await fs.readFile(payload.promptPath, "utf8").then(Boolean), true);
 });
 
 test("cli can emit machine-readable json for stdout output", async () => {
@@ -698,8 +942,9 @@ test("cli can emit machine-readable json for codex session export", async () => 
   assert.equal(result.stderr, "");
   assert.equal(payload.mode, "codex-session");
   assert.equal(payload.outputPath, exportPath);
-  assert.equal(payload.sourceAgent, "c");
-  assert.equal(payload.targetAgent, "x");
+  assert.equal(payload.resumeCommand, undefined);
+  assert.equal(payload.sourceAgent, "claude");
+  assert.equal(payload.targetAgent, "codex");
   assert.match(payload.fileName, /^rollout-/);
 });
 
@@ -736,6 +981,42 @@ test("cli can write handoff files into an explicit output directory", async () =
   assert.equal(path.dirname(payload.promptPath), outDir);
 });
 
+test("cli auto-creates a missing output directory", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const baseDir = await makeTempDir("missing-output-dir");
+  const outDir = path.join(baseDir, "nested", "bridge-out");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "x2r", "--session", sessionPath, "--output-dir", outDir, "--json"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(path.dirname(payload.outputPath), outDir);
+  assert.equal(path.dirname(payload.promptPath), outDir);
+  assert.equal(await fs.readFile(payload.outputPath, "utf8").then(Boolean), true);
+  assert.equal(await fs.readFile(payload.promptPath, "utf8").then(Boolean), true);
+});
+
 test("cli can write codex exports into an explicit output directory", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
   const cliPath = path.join(__dirname, "..", "src", "cli.js");
@@ -766,6 +1047,40 @@ test("cli can write codex exports into an explicit output directory", async () =
   assert.equal(result.code, 0);
   assert.equal(result.stderr, "");
   assert.equal(path.dirname(payload.outputPath), outDir);
+});
+
+test("cli auto-creates parent directories for --out codex exports", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const baseDir = await makeTempDir("missing-out-parent");
+  const exportPath = path.join(baseDir, "nested", "exports", "codex-session.jsonl");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "c2x", "--session", sessionPath, "--export", "codex-session", "--out", exportPath, "--json"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.outputPath, exportPath);
+  assert.equal(await fs.readFile(payload.outputPath, "utf8").then(Boolean), true);
 });
 
 test("cli can split a session into a smaller handoff bundle", async () => {

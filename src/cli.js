@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import {
+  formatAgentName,
   findSessionById,
   findLatestSession,
   forkSession,
@@ -17,13 +20,62 @@ import {
 } from "./index.js";
 
 const routeAliases = {
+  x2c: { agent: "x", target: "c" },
+  x2q: { agent: "x", target: "q" },
   x2r: { agent: "x", target: "r" },
-  r2x: { agent: "r", target: "x" },
-  q2x: { agent: "q", target: "x" },
   c2x: { agent: "c", target: "x" },
+  c2q: { agent: "c", target: "q" },
+  c2r: { agent: "c", target: "r" },
+  q2x: { agent: "q", target: "x" },
+  q2c: { agent: "q", target: "c" },
+  q2r: { agent: "q", target: "r" },
+  r2x: { agent: "r", target: "x" },
+  r2c: { agent: "r", target: "c" },
+  r2q: { agent: "r", target: "q" },
 };
 
 const shorthandAgents = ["c", "x", "q", "r"];
+
+const helpText = `Usage:
+  agent-session-bridge <source> <target> [options]
+  agent-session-bridge <route-alias> [options]
+  agent-session-bridge [options]
+
+Route aliases:
+  x2c   codex -> claude
+  x2q   codex -> qoder
+  x2r   codex -> cursor
+  c2x   claude -> codex
+  c2q   claude -> qoder
+  c2r   claude -> cursor
+  q2x   qoder -> codex
+  q2c   qoder -> claude
+  q2r   qoder -> cursor
+  r2x   cursor -> codex
+  r2c   cursor -> claude
+  r2q   cursor -> qoder
+
+Agent shorthands:
+  x     codex
+  c     claude
+  q     qoder
+  r     cursor
+
+Options:
+  --agent <agent>
+  --target <agent>
+  --session <path>
+  --session-id <id>
+  --out <path>
+  --output-dir <dir>
+  --export codex-session
+  --split-recent <n>
+  --fork <prompt>
+  --fork-file <path>
+  --stdout
+  --copy
+  --json
+  --help`;
 
 function applyPreset(args, preset) {
   return {
@@ -50,6 +102,7 @@ function parseArgs(argv) {
     stdout: false,
     cursor: false,
     copy: false,
+    help: false,
   };
   const positional = [];
 
@@ -96,6 +149,8 @@ function parseArgs(argv) {
       args.copy = true;
     } else if (arg === "--json") {
       args.json = true;
+    } else if (arg === "--help" || arg === "-h") {
+      args.help = true;
     } else {
       positional.push(arg);
     }
@@ -130,13 +185,52 @@ function runCommand(command, commandArgs) {
   });
 }
 
+export function getClipboardCommandCandidates(platform = process.platform) {
+  if (platform === "darwin") {
+    return [{ command: "pbcopy", args: [] }];
+  }
+  if (platform === "win32") {
+    return [{ command: "clip", args: [] }];
+  }
+  return [
+    { command: "wl-copy", args: [] },
+    { command: "xclip", args: ["-selection", "clipboard"] },
+    { command: "xsel", args: ["--clipboard", "--input"] },
+  ];
+}
+
 function copyToClipboard(content) {
   return new Promise((resolve, reject) => {
-    const child = spawn("pbcopy");
-    child.stdin.write(content);
-    child.stdin.end();
-    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error("pbcopy failed"))));
-    child.on("error", reject);
+    const candidates = getClipboardCommandCandidates();
+    let index = 0;
+
+    function tryNext(lastError = null) {
+      const candidate = candidates[index];
+      if (!candidate) {
+        reject(lastError ?? new Error("No clipboard command available"));
+        return;
+      }
+      index += 1;
+
+      const child = spawn(candidate.command, candidate.args);
+      child.stdin.on("error", () => {
+        tryNext(new Error(`${candidate.command} failed`));
+      });
+      child.stdin.write(content);
+      child.stdin.end();
+      child.on("exit", (code) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        tryNext(new Error(`${candidate.command} failed`));
+      });
+      child.on("error", () => {
+        tryNext(new Error(`${candidate.command} failed`));
+      });
+    }
+
+    tryNext();
   });
 }
 
@@ -173,6 +267,10 @@ function emitResult(payload, asJson) {
   if (Array.isArray(payload.paths)) {
     process.stdout.write(`${payload.paths.join("\n")}\n`);
   }
+
+  if (payload.resumeCommand) {
+    process.stdout.write(`Run:\n${payload.resumeCommand}\n`);
+  }
 }
 
 function resolveOutputPath(args, fallbackName) {
@@ -182,11 +280,31 @@ function resolveOutputPath(args, fallbackName) {
   if (args.outputDir) {
     return path.join(args.outputDir, fallbackName);
   }
-  return path.join(process.cwd(), fallbackName);
+  return path.join(process.cwd(), "tmp", "agent-session-bridge", fallbackName);
+}
+
+function resolveCodexInstallPath(fileName) {
+  const match = fileName.match(/^rollout-(\d{4})-(\d{2})-(\d{2})T/u);
+  if (!match) {
+    throw new Error(`Unable to derive Codex session install path from file name: ${fileName}`);
+  }
+
+  const [, year, month, day] = match;
+  return path.join(getDefaultRoot("codex"), year, month, day, fileName);
+}
+
+function isInstalledInCodexSessions(outputPath) {
+  const codexRoot = getDefaultRoot("codex");
+  const relative = path.relative(codexRoot, outputPath);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(`${helpText}\n`);
+    return;
+  }
   args.forkPrompt = await resolveForkPrompt(args);
   const rootDir = args.root ?? getDefaultRoot(args.agent ?? "codex");
   const sessionPath =
@@ -217,6 +335,9 @@ async function main() {
       sessionPath,
       agent: args.agent,
     });
+    const outputPath =
+      args.out || args.outputDir ? resolveOutputPath(args, exported.fileName) : resolveCodexInstallPath(exported.fileName);
+    const resumeCommand = isInstalledInCodexSessions(outputPath) ? `codex resume ${exported.sessionId}` : null;
 
     if (args.stdout) {
       if (args.json) {
@@ -224,11 +345,12 @@ async function main() {
           {
             mode: "codex-session",
             output: "stdout",
-            sourceAgent: args.agent ?? parsedSession.agent,
-            targetAgent: args.target,
+            sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
+            targetAgent: formatAgentName(args.target),
             sessionId: exported.sessionId,
             sessionPath,
             fileName: exported.fileName,
+            ...(resumeCommand ? { resumeCommand } : {}),
           },
           true,
         );
@@ -238,17 +360,18 @@ async function main() {
       return;
     }
 
-    const outputPath = resolveOutputPath(args, exported.fileName);
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(outputPath, exported.content, "utf8");
     emitResult(
       {
         mode: "codex-session",
-        sourceAgent: args.agent ?? parsedSession.agent,
-        targetAgent: args.target,
+        sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
+        targetAgent: formatAgentName(args.target),
         sessionId: exported.sessionId,
         sessionPath,
         fileName: exported.fileName,
         outputPath,
+        ...(resumeCommand ? { resumeCommand } : {}),
         paths: [outputPath],
       },
       args.json,
@@ -262,8 +385,8 @@ async function main() {
         {
           mode: "handoff",
           output: "stdout",
-          sourceAgent: args.agent ?? parsedSession.agent,
-          targetAgent: args.target,
+          sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
+          targetAgent: formatAgentName(args.target),
           sessionId: session.sessionId,
           sessionPath,
         },
@@ -276,6 +399,7 @@ async function main() {
   }
 
   const outputPath = resolveOutputPath(args, `agent-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(outputPath, output, "utf8");
   const promptPath = outputPath.replace(/\.md$/u, ".start.txt");
   const prompt = await renderStartPrompt({
@@ -296,8 +420,8 @@ async function main() {
   emitResult(
     {
       mode: "handoff",
-      sourceAgent: args.agent ?? parsedSession.agent,
-      targetAgent: args.target,
+      sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
+      targetAgent: formatAgentName(args.target),
       sessionId: session.sessionId,
       sessionPath,
       outputPath,
@@ -310,7 +434,14 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.message}\n`);
-  process.exitCode = 1;
-});
+const invokedCliPath = process.argv[1]
+  ? await fs.realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
+const moduleCliPath = await fs.realpath(fileURLToPath(import.meta.url)).catch(() => fileURLToPath(import.meta.url));
+
+if (invokedCliPath && invokedCliPath === moduleCliPath) {
+  main().catch((error) => {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  });
+}

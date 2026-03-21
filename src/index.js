@@ -258,6 +258,10 @@ function normalizeAgent(agent) {
   return agentAliases[normalized] ?? normalized;
 }
 
+export function formatAgentName(agent) {
+  return normalizeAgent(agent) ?? agent ?? "unknown";
+}
+
 export function detectAgent(sessionPath) {
   const value = sessionPath.toLowerCase();
   if (value.includes("/.claude/")) {
@@ -298,15 +302,14 @@ export async function findLatestSession(rootDir = agentRoots.codex, options = {}
     return matches.sort().at(-1) ?? sortedFiles.at(-1);
   }
 
-  const matches = [];
-  for (const filePath of sortedFiles) {
+  for (const filePath of [...sortedFiles].reverse()) {
     const sessionCwd = await readSessionCwd(filePath, agent);
     if (sessionCwd && path.resolve(sessionCwd) === path.resolve(cwd)) {
-      matches.push(filePath);
+      return filePath;
     }
   }
 
-  return matches.at(-1) ?? sortedFiles.at(-1);
+  return sortedFiles.at(-1);
 }
 
 function fileLooksLikeSessionId(filePath, sessionId) {
@@ -495,8 +498,8 @@ export async function renderHandoff({ sessionPath, agent, target = "cursor", ses
     "",
     "Paste the useful parts of this context into the target agent and continue from there.",
     "",
-    `Source Agent: ${agent ?? session.agent}`,
-    `Target Agent: ${target}`,
+    `Source Agent: ${formatAgentName(agent ?? session.agent)}`,
+    `Target Agent: ${formatAgentName(target)}`,
     `Session ID: ${session.sessionId}`,
     `Source File: ${sessionPath}`,
     `Working Directory: ${session.cwd}`,
