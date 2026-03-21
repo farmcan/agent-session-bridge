@@ -6,13 +6,17 @@ import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import os from "node:os";
 
-import { getClipboardCommandCandidates } from "../src/cli.js";
+import { chooseClaudeSessionPath, getClipboardCommandCandidates } from "../src/cli.js";
+import { exportSession } from "../src/core/exporting.js";
+import { getExportCapability, inferDefaultExportFormat } from "../src/core/routing.js";
 import {
   detectAgent,
+  findMatchingSessions,
   findLatestSession,
   findSessionById,
   forkSession,
   parseSession,
+  renderClaudeResumeExport,
   renderCodexResumeExport,
   renderHandoff,
   renderStartPrompt,
@@ -37,6 +41,24 @@ test("detectAgent recognizes Codex, Qoder, QoderCLI alias, and Cursor paths", ()
   assert.equal(detectAgent("/tmp/.cursor/projects/foo/agent-transcripts/id/session.jsonl"), "cursor");
   assert.equal(detectAgent("/tmp/.claude/projects/foo.jsonl"), "claude");
   assert.equal(detectAgent("/tmp/.augment/sessions/foo.jsonl"), null);
+});
+
+test("inferDefaultExportFormat prefers native exports for primary aliases", () => {
+  assert.equal(inferDefaultExportFormat({ routeAlias: "x2c", exportFormat: null, handoff: false }).exportFormat, "claude-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "c2x", exportFormat: null, handoff: false }).exportFormat, "codex-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "x2x", exportFormat: null, handoff: false }).exportFormat, "codex-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "q2x", exportFormat: null, handoff: false }).exportFormat, "codex-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "q2c", exportFormat: null, handoff: false }).exportFormat, "claude-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "x2q", exportFormat: null, handoff: false }).exportFormat, "qoder-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "c2q", exportFormat: null, handoff: false }).exportFormat, "qoder-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "x2c", exportFormat: null, handoff: true }).exportFormat, null);
+});
+
+test("getExportCapability exposes registered qoder export pairs", () => {
+  assert.equal(getExportCapability("qodercli", "codex")?.format, "codex-session");
+  assert.equal(getExportCapability("qodercli", "claude")?.format, "claude-session");
+  assert.equal(getExportCapability("codex", "qodercli")?.format, "qoder-session");
+  assert.equal(getExportCapability("claude", "qodercli")?.format, "qoder-session");
 });
 
 test("cli shorthand agent names map to the expected backends", async () => {
@@ -244,6 +266,100 @@ test("renderCodexResumeExport converts a Claude transcript into Codex response i
   assert.ok(lines.every((line) => line.type !== "event_msg"));
 });
 
+test("renderClaudeResumeExport converts a Codex transcript into Claude-style user and assistant rows", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const exported = await renderClaudeResumeExport({
+    sessionPath,
+    agent: "codex",
+    sessionId: "11111111-2222-4333-8444-555555555555",
+    timestamp: "2026-03-20T09:16:47.246Z",
+    version: "2.1.79",
+  });
+
+  assert.equal(exported.sessionId, "11111111-2222-4333-8444-555555555555");
+  assert.equal(exported.projectKey, "-tmp-demo");
+  assert.equal(exported.fileName, "11111111-2222-4333-8444-555555555555.jsonl");
+
+  const lines = exported.content.trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(lines[0].type, "file-history-snapshot");
+  assert.equal(lines[1].type, "user");
+  assert.equal(lines[1].sessionId, "11111111-2222-4333-8444-555555555555");
+  assert.equal(lines[1].cwd, "/tmp/demo");
+  assert.equal(lines[1].message.role, "user");
+  assert.equal(lines[1].message.content, "Please add a dark mode toggle.");
+  assert.equal(lines[2].type, "assistant");
+  assert.equal(lines[2].message.role, "assistant");
+  assert.equal(lines[2].message.content[0].type, "text");
+  assert.match(lines[2].message.content[0].text, /settings panel/);
+});
+
+test("exportSession renders qodercli -> codex as a Codex session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const exported = await exportSession({
+    sessionPath,
+    sourceAgent: "qodercli",
+    targetAgent: "codex",
+    format: "codex-session",
+  });
+
+  assert.equal(exported.mode, "codex-session");
+  assert.equal(exported.sourceAgent, "qodercli");
+  assert.equal(exported.targetAgent, "codex");
+  assert.equal(exported.sessionId, "qoder-session");
+  assert.equal(exported.files.length, 1);
+  assert.match(exported.files[0].content, /session_meta/);
+});
+
+test("exportSession renders qodercli -> claude as a Claude session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const exported = await exportSession({
+    sessionPath,
+    sourceAgent: "qodercli",
+    targetAgent: "claude",
+    format: "claude-session",
+  });
+
+  assert.equal(exported.mode, "claude-session");
+  assert.equal(exported.sourceAgent, "qodercli");
+  assert.equal(exported.targetAgent, "claude");
+  assert.equal(exported.sessionId, "qoder-session");
+  assert.equal(exported.files.length, 1);
+  assert.match(exported.files[0].content, /"type":"user"/);
+});
+
+test("exportSession renders codex -> qodercli as a qoder session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const exported = await exportSession({
+    sessionPath,
+    sourceAgent: "codex",
+    targetAgent: "qodercli",
+    format: "qoder-session",
+  });
+
+  assert.equal(exported.mode, "qoder-session");
+  assert.equal(exported.sourceAgent, "codex");
+  assert.equal(exported.targetAgent, "qodercli");
+  assert.equal(exported.files.length, 2);
+  assert.match(exported.files[0].fileName, /\.jsonl$/);
+  assert.match(exported.files[1].fileName, /-session\.json$/);
+});
+
+test("exportSession renders claude -> qodercli as a qoder session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const exported = await exportSession({
+    sessionPath,
+    sourceAgent: "claude",
+    targetAgent: "qodercli",
+    format: "qoder-session",
+  });
+
+  assert.equal(exported.mode, "qoder-session");
+  assert.equal(exported.sourceAgent, "claude");
+  assert.equal(exported.targetAgent, "qodercli");
+  assert.equal(exported.files.length, 2);
+  assert.match(exported.files[0].content, /"type":"user"/);
+});
+
 test("splitSession keeps only the most recent user turn and following messages", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
   const session = await parseSession({ sessionPath, agent: "claude" });
@@ -376,6 +492,36 @@ test("findLatestSession prefers Claude sessions whose cwd matches the current di
   const latest = await findLatestSession(sessionsRoot, { cwd: currentDir, agent: "claude" });
 
   assert.equal(path.basename(latest), "bbb.jsonl");
+});
+
+test("findMatchingSessions returns all Claude sessions whose cwd matches the current directory", async () => {
+  const currentDir = await makeTempDir("claude-match-workspace");
+  const otherDir = await makeTempDir("claude-other-workspace");
+  const sessionsRoot = await makeTempDir("claude-match-projects");
+  const targetDir = path.join(sessionsRoot, "-workspace");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "aaa.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T10:00:00.000Z","cwd":"${currentDir}","sessionId":"aaa"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "bbb.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T11:00:00.000Z","cwd":"${currentDir}","sessionId":"bbb"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "ccc.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T12:00:00.000Z","cwd":"${otherDir}","sessionId":"ccc"}\n`,
+    "utf8",
+  );
+
+  const matches = await findMatchingSessions(sessionsRoot, { cwd: currentDir, agent: "claude" });
+
+  assert.deepEqual(
+    matches.map((filePath) => path.basename(filePath)),
+    ["aaa.jsonl", "bbb.jsonl"],
+  );
 });
 
 test("findLatestSession returns on the newest cwd match without reading older unrelated sessions", async () => {
@@ -514,16 +660,16 @@ test("cli supports built-in route aliases like x2r", async () => {
   assert.equal(result.stderr, "");
 });
 
-test("cli supports built-in route aliases like c2x", async () => {
-  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+test("cli supports built-in route aliases like x2c as Claude session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
   const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("x2c-home");
 
   const result = await new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [cliPath, "c2x", "--session", sessionPath, "--stdout"],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    const child = spawn(process.execPath, [cliPath, "x2c", "--session", sessionPath, "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HOME: fakeHome },
+    });
 
     let stdout = "";
     let stderr = "";
@@ -539,10 +685,83 @@ test("cli supports built-in route aliases like c2x", async () => {
     });
   });
 
+  const payload = JSON.parse(result.stdout);
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Source Agent: claude/);
-  assert.match(result.stdout, /Target Agent: codex/);
   assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "claude-session");
+  assert.equal(payload.sourceAgent, "codex");
+  assert.equal(payload.targetAgent, "claude");
+  assert.equal(payload.resumeCommand, "claude --resume sample-session");
+});
+
+test("cli supports built-in route aliases like c2x as Codex session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("c2x-home");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "c2x", "--session", sessionPath, "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HOME: fakeHome },
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "codex-session");
+  assert.equal(payload.sourceAgent, "claude");
+  assert.equal(payload.targetAgent, "codex");
+  assert.equal(payload.resumeCommand, "codex resume claude-session");
+});
+
+test("cli supports built-in route aliases like x2x as Codex fork export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("x2x-home");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "x2x", "--session", sessionPath, "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HOME: fakeHome },
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "codex-session");
+  assert.equal(payload.sourceAgent, "codex");
+  assert.equal(payload.targetAgent, "codex");
+  assert.match(payload.sessionId, /^[0-9a-f-]{36}$/);
+  assert.notEqual(payload.sessionId, "sample-session");
+  assert.match(payload.resumeCommand, /^codex resume /);
 });
 
 test("cli supports built-in route aliases like c2r", async () => {
@@ -576,16 +795,80 @@ test("cli supports built-in route aliases like c2r", async () => {
   assert.equal(result.stderr, "");
 });
 
-test("cli runs correctly when invoked through a symlinked entrypoint", async () => {
-  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
-  const realCliPath = path.join(__dirname, "..", "src", "cli.js");
-  const tempDir = await makeTempDir("cli-symlink");
-  const symlinkPath = path.join(tempDir, "agent-session-bridge");
-
-  await fs.symlink(realCliPath, symlinkPath);
+test("cli supports built-in route aliases like q2x as Codex session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("q2x-home");
 
   const result = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [symlinkPath, "claude", "codex", "--export", "codex-session"], {
+    const child = spawn(process.execPath, [cliPath, "q2x", "--session", sessionPath, "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HOME: fakeHome },
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "codex-session");
+  assert.equal(payload.sourceAgent, "qoder");
+  assert.equal(payload.targetAgent, "codex");
+  assert.equal(payload.resumeCommand, "codex resume qoder-session");
+});
+
+test("cli supports built-in route aliases like q2c as Claude session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("q2c-home");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "q2c", "--session", sessionPath, "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HOME: fakeHome },
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "claude-session");
+  assert.equal(payload.sourceAgent, "qoder");
+  assert.equal(payload.targetAgent, "claude");
+  assert.equal(payload.resumeCommand, "claude --resume qoder-session");
+});
+
+test("cli supports built-in route aliases like x2q as qoder session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "x2q", "--session", sessionPath, "--json"], {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -603,9 +886,300 @@ test("cli runs correctly when invoked through a symlinked entrypoint", async () 
     });
   });
 
+  const payload = JSON.parse(result.stdout);
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /codex resume [0-9a-f-]{36}/);
   assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "qoder-session");
+  assert.equal(payload.sourceAgent, "codex");
+  assert.equal(payload.targetAgent, "qoder");
+  assert.equal(payload.resumeCommand, undefined);
+  assert.match(payload.sidecarPath, /-session\.json$/);
+});
+
+test("cli supports built-in route aliases like c2q as qoder session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "c2q", "--session", sessionPath, "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "qoder-session");
+  assert.equal(payload.sourceAgent, "claude");
+  assert.equal(payload.targetAgent, "qoder");
+  assert.equal(payload.resumeCommand, undefined);
+  assert.match(payload.sidecarPath, /-session\.json$/);
+});
+
+test("cli supports --handoff to force the old handoff behavior for x2c", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "x2c", "--session", sessionPath, "--handoff", "--json"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "handoff");
+  assert.equal(payload.targetAgent, "claude");
+});
+
+test("cli runs correctly when invoked through a symlinked entrypoint", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const realCliPath = path.join(__dirname, "..", "src", "cli.js");
+  const tempDir = await makeTempDir("cli-symlink");
+  const symlinkPath = path.join(tempDir, "agent-session-bridge");
+
+  await fs.symlink(realCliPath, symlinkPath);
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [symlinkPath, "claude", "codex", "--session", sessionPath, "--export", "codex-session"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /codex resume claude-session/);
+  assert.equal(result.stderr, "");
+});
+
+test("chooseClaudeSessionPath fails clearly when multiple matches exist in non-interactive mode", async () => {
+  await assert.rejects(
+    chooseClaudeSessionPath(
+      [
+        {
+          sessionPath: "/tmp/a.jsonl",
+          sessionId: "aaa",
+          updatedAt: "2026-03-21T10:00:00.000Z",
+          title: "修一下登录页的 loading 状态",
+        },
+        {
+          sessionPath: "/tmp/b.jsonl",
+          sessionId: "bbb",
+          updatedAt: "2026-03-21T11:00:00.000Z",
+          title: "把 session bridge 做成可 resume",
+        },
+      ],
+      { isInteractive: false },
+    ),
+    /Multiple Claude sessions match the current directory/,
+  );
+});
+
+test("chooseClaudeSessionPath returns the selected session in interactive mode", async () => {
+  const writes = [];
+  const selected = await chooseClaudeSessionPath(
+    [
+      {
+        sessionPath: "/tmp/a.jsonl",
+        sessionId: "aaa",
+        updatedAt: "2026-03-21T10:00:00.000Z",
+        title: "修一下登录页的 loading 状态",
+      },
+      {
+        sessionPath: "/tmp/b.jsonl",
+        sessionId: "bbb",
+        updatedAt: "2026-03-21T11:00:00.000Z",
+        title: "把 session bridge 做成可 resume",
+      },
+    ],
+    {
+      isInteractive: true,
+      output: { write: (chunk) => writes.push(chunk) },
+      prompt: async () => "2",
+    },
+  );
+
+  assert.equal(selected, "/tmp/b.jsonl");
+  assert.match(writes.join(""), /Multiple Claude sessions match the current directory/);
+  assert.match(
+    writes.join(""),
+    /1\. 修一下登录页的 loading 状态\n\s+2026-03-21T10:00:00.000Z  aaa\n\s+\/tmp\/a\.jsonl/,
+  );
+  assert.match(
+    writes.join(""),
+    /2\. 把 session bridge 做成可 resume\n\s+2026-03-21T11:00:00.000Z  bbb\n\s+\/tmp\/b\.jsonl/,
+  );
+});
+
+test("chooseClaudeSessionPath truncates long titles for readability", async () => {
+  let errorMessage = "";
+  await assert.rejects(
+    chooseClaudeSessionPath(
+      [
+        {
+          sessionPath: "/tmp/a.jsonl",
+          sessionId: "aaa",
+          updatedAt: "2026-03-21T10:00:00.000Z",
+          title:
+            "这是一个特别特别长的标题，用来确认 Claude session 选择列表不会把整行拉得太长而影响可读性，需要被截断",
+        },
+        {
+          sessionPath: "/tmp/b.jsonl",
+          sessionId: "bbb",
+          updatedAt: "2026-03-21T11:00:00.000Z",
+          title: "短标题",
+        },
+      ],
+      { isInteractive: false },
+    ),
+    (error) => {
+      errorMessage = error.message;
+      return /Multiple Claude sessions match the current directory/.test(error.message);
+    },
+  );
+
+  assert.match(errorMessage, /这是一个特别特别长的标题/);
+  assert.match(errorMessage, /\.\.\./);
+  assert.match(errorMessage, /\n\s+2026-03-21T10:00:00.000Z  aaa\n\s+\/tmp\/a\.jsonl/);
+});
+
+test("cli fails clearly for ambiguous Claude sessions in non-interactive mode", async () => {
+  const currentDir = await makeTempDir("claude-cli-match-workspace");
+  const sessionsRoot = await makeTempDir("claude-cli-projects");
+  const targetDir = path.join(sessionsRoot, "-workspace");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "aaa.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T10:00:00.000Z","cwd":"${currentDir}","sessionId":"aaa"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "bbb.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T11:00:00.000Z","cwd":"${currentDir}","sessionId":"bbb"}\n`,
+    "utf8",
+  );
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "claude", "codex", "--root", sessionsRoot, "--stdout"],
+      { cwd: currentDir, stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Multiple Claude sessions match the current directory/);
+  assert.match(result.stderr, /--session-id/);
+});
+
+test("cli fails clearly for ambiguous Codex sessions in non-interactive mode", async () => {
+  const currentDir = await makeTempDir("codex-cli-match-workspace");
+  const sessionsRoot = await makeTempDir("codex-cli-sessions");
+  const targetDir = path.join(sessionsRoot, "2026", "03", "21");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-21T10-00-00-aaa.jsonl"),
+    [
+      `{"timestamp":"2026-03-21T10:00:00.000Z","type":"session_meta","payload":{"id":"aaa","cwd":"${currentDir}"}}`,
+      '{"timestamp":"2026-03-21T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"先修一下 README"}]}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-21T11-00-00-bbb.jsonl"),
+    [
+      `{"timestamp":"2026-03-21T11:00:00.000Z","type":"session_meta","payload":{"id":"bbb","cwd":"${currentDir}"}}`,
+      '{"timestamp":"2026-03-21T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"做一下 Claude export"}]}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "codex", "claude", "--root", sessionsRoot, "--export", "claude-session"],
+      { cwd: currentDir, stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Multiple Codex sessions match the current directory/);
+  assert.match(result.stderr, /先修一下 README/);
+  assert.match(result.stderr, /做一下 Claude export/);
+  assert.match(result.stderr, /--session-id/);
 });
 
 test("cli supports built-in route aliases like r2c", async () => {
@@ -764,6 +1338,47 @@ test("cli installs default codex exports into the real Codex session directory",
     path.join(fakeHome, ".codex", "sessions", "2026", "03", "20", payload.fileName),
   );
   assert.equal(payload.resumeCommand, "codex resume claude-session");
+  assert.equal(await fs.readFile(payload.outputPath, "utf8").then(Boolean), true);
+});
+
+test("cli installs default claude exports into the real Claude session directory", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const fakeHome = await makeTempDir("claude-home");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "codex", "claude", "--session", sessionPath, "--export", "claude-session", "--json"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, HOME: fakeHome },
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "claude-session");
+  assert.equal(
+    payload.outputPath,
+    path.join(fakeHome, ".claude", "projects", "-tmp-demo", "sample-session.jsonl"),
+  );
+  assert.equal(payload.resumeCommand, "claude --resume sample-session");
   assert.equal(await fs.readFile(payload.outputPath, "utf8").then(Boolean), true);
 });
 
@@ -946,6 +1561,44 @@ test("cli can emit machine-readable json for codex session export", async () => 
   assert.equal(payload.sourceAgent, "claude");
   assert.equal(payload.targetAgent, "codex");
   assert.match(payload.fileName, /^rollout-/);
+});
+
+test("cli can emit machine-readable json for claude session export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const cliPath = path.join(__dirname, "..", "src", "cli.js");
+  const outDir = await makeTempDir("json-claude-export");
+  const exportPath = path.join(outDir, "sample-session.jsonl");
+
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [cliPath, "x2c", "--session", sessionPath, "--export", "claude-session", "--out", exportPath, "--json"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(payload.mode, "claude-session");
+  assert.equal(payload.outputPath, exportPath);
+  assert.equal(payload.resumeCommand, undefined);
+  assert.equal(payload.sourceAgent, "codex");
+  assert.equal(payload.targetAgent, "claude");
+  assert.equal(payload.fileName, "sample-session.jsonl");
 });
 
 test("cli can write handoff files into an explicit output directory", async () => {

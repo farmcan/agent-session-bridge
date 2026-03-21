@@ -6,33 +6,13 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
-  formatAgentName,
-  findSessionById,
-  findLatestSession,
-  forkSession,
-  getDefaultRoot,
-  supportedAgents,
-  renderCodexResumeExport,
-  renderHandoff,
-  renderStartPrompt,
   parseSession,
-  splitSession,
-} from "./index.js";
-
-const routeAliases = {
-  x2c: { agent: "x", target: "c" },
-  x2q: { agent: "x", target: "q" },
-  x2r: { agent: "x", target: "r" },
-  c2x: { agent: "c", target: "x" },
-  c2q: { agent: "c", target: "q" },
-  c2r: { agent: "c", target: "r" },
-  q2x: { agent: "q", target: "x" },
-  q2c: { agent: "q", target: "c" },
-  q2r: { agent: "q", target: "r" },
-  r2x: { agent: "r", target: "x" },
-  r2c: { agent: "r", target: "c" },
-  r2q: { agent: "r", target: "q" },
-};
+} from "./adapters/sources/index.js";
+import { formatAgentName, getDefaultRoot, supportedAgents } from "./core/agents.js";
+import { findMatchingSessions, findSessionById, findLatestSession } from "./core/discovery.js";
+import { exportSession } from "./core/exporting.js";
+import { resolveInstallPlan } from "./core/install.js";
+import { inferDefaultExportFormat, routeAliases } from "./core/routing.js";
 
 const shorthandAgents = ["c", "x", "q", "r"];
 
@@ -42,6 +22,7 @@ const helpText = `Usage:
   agent-session-bridge [options]
 
 Route aliases:
+  x2x   codex -> codex
   x2c   codex -> claude
   x2q   codex -> qoder
   x2r   codex -> cursor
@@ -68,7 +49,8 @@ Options:
   --session-id <id>
   --out <path>
   --output-dir <dir>
-  --export codex-session
+  --export codex-session|claude-session|qoder-session
+  --handoff
   --split-recent <n>
   --fork <prompt>
   --fork-file <path>
@@ -94,7 +76,9 @@ function parseArgs(argv) {
     out: null,
     outputDir: null,
     target: "cursor",
+    routeAlias: null,
     exportFormat: null,
+    handoff: false,
     splitRecent: null,
     forkPrompt: null,
     forkFile: null,
@@ -132,6 +116,8 @@ function parseArgs(argv) {
     } else if (arg === "--export") {
       args.exportFormat = argv[i + 1];
       i += 1;
+    } else if (arg === "--handoff") {
+      args.handoff = true;
     } else if (arg === "--split-recent") {
       args.splitRecent = Number(argv[i + 1]);
       i += 1;
@@ -158,7 +144,10 @@ function parseArgs(argv) {
 
   const [first, second] = positional;
   if (first && routeAliases[first]) {
-    return applyPreset(args, routeAliases[first]);
+    return inferDefaultExportFormat({
+      ...applyPreset(args, routeAliases[first]),
+      routeAlias: first,
+    });
   } else if (
     first &&
     second &&
@@ -168,7 +157,7 @@ function parseArgs(argv) {
     return applyPreset(args, { agent: first, target: second });
   }
 
-  return args;
+  return inferDefaultExportFormat(args);
 }
 
 function runCommand(command, commandArgs) {
@@ -247,17 +236,6 @@ async function resolveForkPrompt(args) {
   return args.forkPrompt;
 }
 
-function applySessionTransforms(session, args) {
-  let nextSession = session;
-  if (args.splitRecent) {
-    nextSession = splitSession(nextSession, { recentUserTurns: args.splitRecent });
-  }
-  if (args.forkPrompt) {
-    nextSession = forkSession(nextSession, { prompt: args.forkPrompt });
-  }
-  return nextSession;
-}
-
 function emitResult(payload, asJson) {
   if (asJson) {
     process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
@@ -273,30 +251,131 @@ function emitResult(payload, asJson) {
   }
 }
 
-function resolveOutputPath(args, fallbackName) {
-  if (args.out) {
-    return args.out;
+function formatSessionTitle(title, maxLength = 48) {
+  const normalized = String(title ?? "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!normalized) {
+    return "(untitled)";
   }
-  if (args.outputDir) {
-    return path.join(args.outputDir, fallbackName);
+  if (normalized.length <= maxLength) {
+    return normalized;
   }
-  return path.join(process.cwd(), "tmp", "agent-session-bridge", fallbackName);
+  return `${normalized.slice(0, maxLength - 3)}...`;
 }
 
-function resolveCodexInstallPath(fileName) {
-  const match = fileName.match(/^rollout-(\d{4})-(\d{2})-(\d{2})T/u);
-  if (!match) {
-    throw new Error(`Unable to derive Codex session install path from file name: ${fileName}`);
+function getSessionTitle(session) {
+  if (session.title) {
+    return formatSessionTitle(session.title);
   }
-
-  const [, year, month, day] = match;
-  return path.join(getDefaultRoot("codex"), year, month, day, fileName);
+  const firstUserMessage = session.messages.find((message) => message.role === "user" && message.text.trim());
+  return formatSessionTitle(firstUserMessage?.text);
 }
 
-function isInstalledInCodexSessions(outputPath) {
-  const codexRoot = getDefaultRoot("codex");
-  const relative = path.relative(codexRoot, outputPath);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+function formatSessionCandidate(candidate, index) {
+  const title = formatSessionTitle(candidate.title);
+  const updatedAt = candidate.updatedAt ?? "unknown time";
+  return `${index + 1}. ${title}\n   ${updatedAt}  ${candidate.sessionId}\n   ${candidate.sessionPath}`;
+}
+
+export async function chooseSessionPath(
+  agentLabel,
+  candidates,
+  {
+    isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    output = process.stderr,
+    prompt = null,
+  } = {},
+) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error(`No ${agentLabel} session candidates available`);
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0].sessionPath;
+  }
+
+  if (!isInteractive) {
+    const options = candidates.map(formatSessionCandidate).join("\n");
+    throw new Error(
+      `Multiple ${agentLabel} sessions match the current directory.\n${options}\nUse --session-id to choose one explicitly.`,
+    );
+  }
+
+  output.write(`Multiple ${agentLabel} sessions match the current directory:\n`);
+  output.write(`${candidates.map(formatSessionCandidate).join("\n")}\n`);
+
+  const ask = prompt ?? (async () => {
+    output.write(`Select a session [1-${candidates.length}]: `);
+    const chunks = [];
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk);
+      if (String(chunk).includes("\n")) {
+        break;
+      }
+    }
+    return chunks.join("").trim();
+  });
+
+  while (true) {
+    const answer = String(await ask()).trim();
+    const selectedIndex = Number(answer);
+    if (Number.isInteger(selectedIndex) && selectedIndex >= 1 && selectedIndex <= candidates.length) {
+      return candidates[selectedIndex - 1].sessionPath;
+    }
+    output.write(`Invalid selection. Choose a number between 1 and ${candidates.length}.\n`);
+  }
+}
+
+export async function chooseClaudeSessionPath(candidates, options = {}) {
+  return chooseSessionPath("Claude", candidates, options);
+}
+
+function formatSessionLabel(agent) {
+  const value = formatAgentName(agent);
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+async function resolveSessionPath(args) {
+  const rootDir = args.root ?? getDefaultRoot(args.agent ?? "codex");
+  if (args.session) {
+    return args.session;
+  }
+  if (args.sessionId) {
+    return findSessionById(rootDir, {
+      sessionId: args.sessionId,
+      agent: args.agent ?? "codex",
+    });
+  }
+  const resolvedAgent = formatAgentName(args.agent ?? "codex");
+  if (resolvedAgent === "claude" || resolvedAgent === "codex" || resolvedAgent === "qoder" || resolvedAgent === "qodercli") {
+    const matches = await findMatchingSessions(rootDir, {
+      cwd: process.cwd(),
+      agent: resolvedAgent,
+    });
+    if (matches.length > 1) {
+      const candidates = await Promise.all(
+        matches
+          .sort()
+          .reverse()
+          .map(async (sessionPath) => {
+            const session = await parseSession({ sessionPath, agent: resolvedAgent });
+            return {
+              sessionPath,
+              sessionId: session.sessionId,
+              updatedAt: session.updatedAt,
+              title: getSessionTitle(session),
+            };
+          }),
+      );
+      return chooseSessionPath(formatSessionLabel(resolvedAgent), candidates);
+    }
+  }
+
+  return findLatestSession(rootDir, {
+    cwd: process.cwd(),
+    agent: args.agent ?? "codex",
+  });
 }
 
 async function main() {
@@ -306,129 +385,74 @@ async function main() {
     return;
   }
   args.forkPrompt = await resolveForkPrompt(args);
-  const rootDir = args.root ?? getDefaultRoot(args.agent ?? "codex");
-  const sessionPath =
-    args.session ??
-    (args.sessionId
-      ? await findSessionById(rootDir, {
-          sessionId: args.sessionId,
-          agent: args.agent ?? "codex",
-        })
-      : await findLatestSession(rootDir, {
-          cwd: process.cwd(),
-          agent: args.agent ?? "codex",
-        }));
-  const parsedSession = await parseSession({
+  const sessionPath = await resolveSessionPath(args);
+  const exported = await exportSession({
     sessionPath,
-    agent: args.agent,
+    sourceAgent: args.agent,
+    targetAgent: args.target,
+    format: args.exportFormat ?? "handoff",
+    splitRecent: args.splitRecent,
+    forkPrompt: args.forkPrompt,
   });
-  const session = applySessionTransforms(parsedSession, args);
-  const output = await renderHandoff({
-    sessionPath,
-    agent: args.agent,
-    target: args.target,
-    session,
-  });
-
-  if (args.exportFormat === "codex-session") {
-    const exported = await renderCodexResumeExport({
-      sessionPath,
-      agent: args.agent,
-    });
-    const outputPath =
-      args.out || args.outputDir ? resolveOutputPath(args, exported.fileName) : resolveCodexInstallPath(exported.fileName);
-    const resumeCommand = isInstalledInCodexSessions(outputPath) ? `codex resume ${exported.sessionId}` : null;
-
-    if (args.stdout) {
-      if (args.json) {
-        emitResult(
-          {
-            mode: "codex-session",
-            output: "stdout",
-            sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
-            targetAgent: formatAgentName(args.target),
-            sessionId: exported.sessionId,
-            sessionPath,
-            fileName: exported.fileName,
-            ...(resumeCommand ? { resumeCommand } : {}),
-          },
-          true,
-        );
-        return;
-      }
-      process.stdout.write(exported.content);
-      return;
-    }
-
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, exported.content, "utf8");
-    emitResult(
-      {
-        mode: "codex-session",
-        sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
-        targetAgent: formatAgentName(args.target),
-        sessionId: exported.sessionId,
-        sessionPath,
-        fileName: exported.fileName,
-        outputPath,
-        ...(resumeCommand ? { resumeCommand } : {}),
-        paths: [outputPath],
-      },
-      args.json,
-    );
-    return;
-  }
 
   if (args.stdout) {
     if (args.json) {
       emitResult(
         {
-          mode: "handoff",
+          mode: exported.mode,
           output: "stdout",
-          sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
-          targetAgent: formatAgentName(args.target),
-          sessionId: session.sessionId,
+          sourceAgent: exported.sourceAgent,
+          targetAgent: exported.targetAgent,
+          sessionId: exported.sessionId,
           sessionPath,
+          ...(exported.files[0] ? { fileName: exported.files[0].fileName } : {}),
         },
         true,
       );
       return;
     }
-    process.stdout.write(output);
+    process.stdout.write(exported.files[0]?.content ?? "");
     return;
   }
 
-  const outputPath = resolveOutputPath(args, `agent-handoff-${path.basename(sessionPath, ".jsonl")}.md`);
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  await fs.writeFile(outputPath, output, "utf8");
-  const promptPath = outputPath.replace(/\.md$/u, ".start.txt");
-  const prompt = await renderStartPrompt({
-    handoffPath: `./${path.basename(outputPath)}`,
-    target: args.target,
+  const installPlan = resolveInstallPlan({
+    args,
+    exported,
+    targetAgent: args.target,
   });
-  await fs.writeFile(promptPath, prompt, "utf8");
+
+  for (const file of installPlan.files) {
+    await fs.mkdir(path.dirname(file.path), { recursive: true });
+    await fs.writeFile(file.path, file.content, "utf8");
+  }
 
   if (args.copy) {
-    const content = await fs.readFile(promptPath, "utf8");
-    await copyToClipboard(content);
+    const promptFile = installPlan.files.find((file) => file.key === "prompt") ?? installPlan.files[0];
+    await copyToClipboard(promptFile.content);
   }
 
   if (args.cursor) {
-    await runCommand("cursor", [outputPath, promptPath]);
+    await runCommand("cursor", installPlan.files.map((file) => file.path));
   }
 
+  const mainFile = installPlan.files.find((file) => file.key === "main") ?? installPlan.files[0];
+  const promptFile = installPlan.files.find((file) => file.key === "prompt");
+  const sidecarFile = installPlan.files.find((file) => file.key === "sidecar");
   emitResult(
     {
-      mode: "handoff",
-      sourceAgent: formatAgentName(args.agent ?? parsedSession.agent),
-      targetAgent: formatAgentName(args.target),
-      sessionId: session.sessionId,
+      mode: exported.mode,
+      sourceAgent: exported.sourceAgent,
+      targetAgent: exported.targetAgent,
+      sessionId: exported.sessionId,
       sessionPath,
-      outputPath,
-      promptPath,
+      ...(mainFile ? { fileName: mainFile.fileName } : {}),
+      ...(mainFile ? { outputPath: mainFile.path } : {}),
+      ...(promptFile ? { promptPath: promptFile.path } : {}),
+      ...(sidecarFile ? { sidecarPath: sidecarFile.path } : {}),
       copied: args.copy,
       openedInCursor: args.cursor,
-      paths: [outputPath, promptPath],
+      ...(installPlan.resumeCommand ? { resumeCommand: installPlan.resumeCommand } : {}),
+      paths: installPlan.files.map((file) => file.path),
     },
     args.json,
   );
