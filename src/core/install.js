@@ -2,10 +2,6 @@ import path from "node:path";
 
 import { getDefaultRoot, normalizeAgent } from "./agents.js";
 
-function rewriteHandoffPrompt(content, mainFilePath) {
-  return content.replace(/^\.\/.*$/mu, `./${path.basename(mainFilePath)}`);
-}
-
 function resolveCodexInstallPath(fileName) {
   const match = fileName.match(/^rollout-(\d{4})-(\d{2})-(\d{2})T/u);
   if (!match) {
@@ -37,20 +33,6 @@ function replaceExtension(filePath, pattern, replacement, fallbackSuffix) {
 
 export function resolveInstallPlan({ args, exported, targetAgent }) {
   if (args.out) {
-    if (exported.mode === "handoff") {
-      const mainPath = args.out;
-      return {
-        files: [
-          withPath(exported.files[0], mainPath),
-          withPath(
-            { ...exported.files[1], content: rewriteHandoffPrompt(exported.files[1].content, mainPath) },
-            replaceExtension(mainPath, /\.md$/u, ".start.txt", ".start.txt"),
-          ),
-        ],
-        resumeCommand: null,
-      };
-    }
-
     if (exported.mode === "qoder-session") {
       return {
         files: [
@@ -66,13 +48,6 @@ export function resolveInstallPlan({ args, exported, targetAgent }) {
 
   if (args.outputDir) {
     const files = exported.files.map((file) => withPath(file, path.join(args.outputDir, file.fileName)));
-    if (exported.mode === "handoff") {
-      const mainFile = files.find((file) => file.key === "main");
-      const promptFile = files.find((file) => file.key === "prompt");
-      if (mainFile && promptFile) {
-        promptFile.content = rewriteHandoffPrompt(promptFile.content, mainFile.path);
-      }
-    }
     return {
       files,
       resumeCommand: null,
@@ -95,14 +70,8 @@ export function resolveInstallPlan({ args, exported, targetAgent }) {
     };
   }
 
-  const files = exported.files.map((file) => withPath(file, resolveDefaultTmpPath(file.fileName)));
-  if (exported.mode === "handoff") {
-    const mainFile = files.find((file) => file.key === "main");
-    const promptFile = files.find((file) => file.key === "prompt");
-    if (mainFile && promptFile) {
-      promptFile.content = rewriteHandoffPrompt(promptFile.content, mainFile.path);
-    }
-  }
-
-  return { files, resumeCommand: null };
+  return {
+    files: exported.files.map((file) => withPath(file, resolveDefaultTmpPath(file.fileName))),
+    resumeCommand: null,
+  };
 }

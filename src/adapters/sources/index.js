@@ -2,13 +2,11 @@ import { detectAgent, normalizeAgent } from "../../core/agents.js";
 import { readJsonl } from "../../core/files.js";
 import * as claude from "./claude.js";
 import * as codex from "./codex.js";
-import * as cursor from "./cursor.js";
 import * as qoder from "./qoder.js";
 
 const adapters = {
   claude,
   codex,
-  cursor,
   qoder,
   qodercli: qoder,
 };

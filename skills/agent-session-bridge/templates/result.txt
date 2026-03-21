@@ -1,6 +1,0 @@
-Generated:
-- {handoff_path}
-- {prompt_path}
-
-Next step:
-Give the next agent `{prompt_path}` first, then let it read `{handoff_path}` itself.

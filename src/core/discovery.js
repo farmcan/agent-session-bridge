@@ -1,16 +1,7 @@
-import path from "node:path";
-
 import { detectAgent, getDefaultRoot, normalizeAgent } from "./agents.js";
 import { samePath, walk } from "./files.js";
 import { parseSession, readSessionCwd } from "../adapters/sources/index.js";
-
-function toCursorProjectKey(cwd) {
-  return path
-    .resolve(cwd)
-    .split(path.sep)
-    .filter(Boolean)
-    .join("-");
-}
+import path from "node:path";
 
 function fileLooksLikeSessionId(filePath, sessionId) {
   const baseName = path.basename(filePath, ".jsonl");
@@ -32,12 +23,6 @@ export async function findLatestSession(rootDir = getDefaultRoot("codex"), optio
 
   if (!cwd || !agent) {
     return sortedFiles.at(-1);
-  }
-
-  if (agent === "cursor") {
-    const projectKey = toCursorProjectKey(cwd);
-    const matches = sortedFiles.filter((filePath) => filePath.includes(`${path.sep}${projectKey}${path.sep}`));
-    return matches.sort().at(-1) ?? sortedFiles.at(-1);
   }
 
   for (const filePath of [...sortedFiles].reverse()) {
@@ -62,11 +47,6 @@ export async function findMatchingSessions(rootDir = getDefaultRoot("codex"), op
 
   if (!cwd || !agent) {
     return sortedFiles;
-  }
-
-  if (agent === "cursor") {
-    const projectKey = toCursorProjectKey(cwd);
-    return sortedFiles.filter((filePath) => filePath.includes(`${path.sep}${projectKey}${path.sep}`));
   }
 
   const matches = [];

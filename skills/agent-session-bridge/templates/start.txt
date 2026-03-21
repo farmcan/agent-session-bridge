@@ -1,7 +1,0 @@
-Use `agent-session-bridge` to generate a handoff bundle.
-
-Return:
-- source agent
-- target agent
-- generated file paths
-- one short next-step instruction

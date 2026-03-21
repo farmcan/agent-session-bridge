@@ -1,46 +1,36 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import {
-  parseSession,
-} from "./adapters/sources/index.js";
+import { parseSession } from "./adapters/sources/index.js";
 import { formatAgentName, getDefaultRoot, supportedAgents } from "./core/agents.js";
 import { findMatchingSessions, findSessionById, findLatestSession } from "./core/discovery.js";
 import { exportSession } from "./core/exporting.js";
 import { resolveInstallPlan } from "./core/install.js";
 import { inferDefaultExportFormat, routeAliases } from "./core/routing.js";
 
-const shorthandAgents = ["c", "x", "q", "r"];
+const shorthandAgents = ["c", "x", "q"];
+const removedRouteAliases = new Set(["x2r", "c2r", "q2r", "r2x", "r2c", "r2q"]);
+const removedOptions = new Set(["--handoff", "--copy", "--cursor"]);
 
 const helpText = `Usage:
   agent-session-bridge <source> <target> [options]
   agent-session-bridge <route-alias> [options]
-  agent-session-bridge [options]
 
 Route aliases:
   x2x   codex -> codex
   x2c   codex -> claude
   x2q   codex -> qoder
-  x2r   codex -> cursor
   c2x   claude -> codex
   c2q   claude -> qoder
-  c2r   claude -> cursor
   q2x   qoder -> codex
   q2c   qoder -> claude
-  q2r   qoder -> cursor
-  r2x   cursor -> codex
-  r2c   cursor -> claude
-  r2q   cursor -> qoder
 
 Agent shorthands:
   x     codex
   c     claude
   q     qoder
-  r     cursor
 
 Options:
   --agent <agent>
@@ -50,12 +40,10 @@ Options:
   --out <path>
   --output-dir <dir>
   --export codex-session|claude-session|qoder-session
-  --handoff
   --split-recent <n>
   --fork <prompt>
   --fork-file <path>
   --stdout
-  --copy
   --json
   --help`;
 
@@ -63,7 +51,7 @@ function applyPreset(args, preset) {
   return {
     ...args,
     agent: args.agent ?? preset.agent,
-    target: args.target === "cursor" && !args.agent ? preset.target : args.target,
+    target: args.target ?? preset.target,
   };
 }
 
@@ -75,24 +63,24 @@ function parseArgs(argv) {
     sessionId: null,
     out: null,
     outputDir: null,
-    target: "cursor",
+    target: null,
     routeAlias: null,
     exportFormat: null,
-    handoff: false,
     splitRecent: null,
     forkPrompt: null,
     forkFile: null,
     json: false,
     stdout: false,
-    cursor: false,
-    copy: false,
     help: false,
+    error: null,
   };
   const positional = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--agent") {
+    if (removedOptions.has(arg)) {
+      args.error = `Unsupported option: ${arg}`;
+    } else if (arg === "--agent") {
       args.agent = argv[i + 1];
       i += 1;
     } else if (arg === "--root") {
@@ -116,8 +104,6 @@ function parseArgs(argv) {
     } else if (arg === "--export") {
       args.exportFormat = argv[i + 1];
       i += 1;
-    } else if (arg === "--handoff") {
-      args.handoff = true;
     } else if (arg === "--split-recent") {
       args.splitRecent = Number(argv[i + 1]);
       i += 1;
@@ -129,10 +115,6 @@ function parseArgs(argv) {
       i += 1;
     } else if (arg === "--stdout") {
       args.stdout = true;
-    } else if (arg === "--cursor") {
-      args.cursor = true;
-    } else if (arg === "--copy") {
-      args.copy = true;
     } else if (arg === "--json") {
       args.json = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -143,84 +125,25 @@ function parseArgs(argv) {
   }
 
   const [first, second] = positional;
+  if (first && removedRouteAliases.has(first)) {
+    return { ...args, error: `Unsupported route alias: ${first}` };
+  }
   if (first && routeAliases[first]) {
     return inferDefaultExportFormat({
       ...applyPreset(args, routeAliases[first]),
       routeAlias: first,
     });
-  } else if (
+  }
+  if (
     first &&
     second &&
     (supportedAgents.includes(first) || shorthandAgents.includes(first)) &&
     (supportedAgents.includes(second) || shorthandAgents.includes(second))
   ) {
-    return applyPreset(args, { agent: first, target: second });
+    return inferDefaultExportFormat(applyPreset(args, { agent: first, target: second }));
   }
 
   return inferDefaultExportFormat(args);
-}
-
-function runCommand(command, commandArgs) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, commandArgs, { stdio: "inherit" });
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`${command} exited with code ${code}`));
-    });
-    child.on("error", reject);
-  });
-}
-
-export function getClipboardCommandCandidates(platform = process.platform) {
-  if (platform === "darwin") {
-    return [{ command: "pbcopy", args: [] }];
-  }
-  if (platform === "win32") {
-    return [{ command: "clip", args: [] }];
-  }
-  return [
-    { command: "wl-copy", args: [] },
-    { command: "xclip", args: ["-selection", "clipboard"] },
-    { command: "xsel", args: ["--clipboard", "--input"] },
-  ];
-}
-
-function copyToClipboard(content) {
-  return new Promise((resolve, reject) => {
-    const candidates = getClipboardCommandCandidates();
-    let index = 0;
-
-    function tryNext(lastError = null) {
-      const candidate = candidates[index];
-      if (!candidate) {
-        reject(lastError ?? new Error("No clipboard command available"));
-        return;
-      }
-      index += 1;
-
-      const child = spawn(candidate.command, candidate.args);
-      child.stdin.on("error", () => {
-        tryNext(new Error(`${candidate.command} failed`));
-      });
-      child.stdin.write(content);
-      child.stdin.end();
-      child.on("exit", (code) => {
-        if (code === 0) {
-          resolve();
-          return;
-        }
-        tryNext(new Error(`${candidate.command} failed`));
-      });
-      child.on("error", () => {
-        tryNext(new Error(`${candidate.command} failed`));
-      });
-    }
-
-    tryNext();
-  });
 }
 
 async function resolveForkPrompt(args) {
@@ -347,29 +270,28 @@ async function resolveSessionPath(args) {
       agent: args.agent ?? "codex",
     });
   }
+
   const resolvedAgent = formatAgentName(args.agent ?? "codex");
-  if (resolvedAgent === "claude" || resolvedAgent === "codex" || resolvedAgent === "qoder" || resolvedAgent === "qodercli") {
-    const matches = await findMatchingSessions(rootDir, {
-      cwd: process.cwd(),
-      agent: resolvedAgent,
-    });
-    if (matches.length > 1) {
-      const candidates = await Promise.all(
-        matches
-          .sort()
-          .reverse()
-          .map(async (sessionPath) => {
-            const session = await parseSession({ sessionPath, agent: resolvedAgent });
-            return {
-              sessionPath,
-              sessionId: session.sessionId,
-              updatedAt: session.updatedAt,
-              title: getSessionTitle(session),
-            };
-          }),
-      );
-      return chooseSessionPath(formatSessionLabel(resolvedAgent), candidates);
-    }
+  const matches = await findMatchingSessions(rootDir, {
+    cwd: process.cwd(),
+    agent: resolvedAgent,
+  });
+  if (matches.length > 1) {
+    const candidates = await Promise.all(
+      matches
+        .sort()
+        .reverse()
+        .map(async (sessionPath) => {
+          const session = await parseSession({ sessionPath, agent: resolvedAgent });
+          return {
+            sessionPath,
+            sessionId: session.sessionId,
+            updatedAt: session.updatedAt,
+            title: getSessionTitle(session),
+          };
+        }),
+    );
+    return chooseSessionPath(formatSessionLabel(resolvedAgent), candidates);
   }
 
   return findLatestSession(rootDir, {
@@ -384,13 +306,20 @@ async function main() {
     process.stdout.write(`${helpText}\n`);
     return;
   }
+  if (args.error) {
+    throw new Error(args.error);
+  }
+  if (!args.agent || !args.target || !args.exportFormat) {
+    throw new Error("Provide a supported source/target pair or route alias");
+  }
+
   args.forkPrompt = await resolveForkPrompt(args);
   const sessionPath = await resolveSessionPath(args);
   const exported = await exportSession({
     sessionPath,
     sourceAgent: args.agent,
     targetAgent: args.target,
-    format: args.exportFormat ?? "handoff",
+    format: args.exportFormat,
     splitRecent: args.splitRecent,
     forkPrompt: args.forkPrompt,
   });
@@ -426,17 +355,7 @@ async function main() {
     await fs.writeFile(file.path, file.content, "utf8");
   }
 
-  if (args.copy) {
-    const promptFile = installPlan.files.find((file) => file.key === "prompt") ?? installPlan.files[0];
-    await copyToClipboard(promptFile.content);
-  }
-
-  if (args.cursor) {
-    await runCommand("cursor", installPlan.files.map((file) => file.path));
-  }
-
   const mainFile = installPlan.files.find((file) => file.key === "main") ?? installPlan.files[0];
-  const promptFile = installPlan.files.find((file) => file.key === "prompt");
   const sidecarFile = installPlan.files.find((file) => file.key === "sidecar");
   emitResult(
     {
@@ -447,10 +366,7 @@ async function main() {
       sessionPath,
       ...(mainFile ? { fileName: mainFile.fileName } : {}),
       ...(mainFile ? { outputPath: mainFile.path } : {}),
-      ...(promptFile ? { promptPath: promptFile.path } : {}),
       ...(sidecarFile ? { sidecarPath: sidecarFile.path } : {}),
-      copied: args.copy,
-      openedInCursor: args.cursor,
       ...(installPlan.resumeCommand ? { resumeCommand: installPlan.resumeCommand } : {}),
       paths: installPlan.files.map((file) => file.path),
     },

@@ -4,16 +4,10 @@ export const routeAliases = {
   x2x: { agent: "x", target: "x" },
   x2c: { agent: "x", target: "c" },
   x2q: { agent: "x", target: "q" },
-  x2r: { agent: "x", target: "r" },
   c2x: { agent: "c", target: "x" },
   c2q: { agent: "c", target: "q" },
-  c2r: { agent: "c", target: "r" },
   q2x: { agent: "q", target: "x" },
   q2c: { agent: "q", target: "c" },
-  q2r: { agent: "q", target: "r" },
-  r2x: { agent: "r", target: "x" },
-  r2c: { agent: "r", target: "c" },
-  r2q: { agent: "r", target: "q" },
 };
 
 const exportCapabilities = new Map(
@@ -51,7 +45,7 @@ export function getExportCapability(sourceAgent, targetAgent) {
 }
 
 export function inferDefaultExportFormat(args) {
-  if (args.exportFormat || args.handoff) {
+  if (args.exportFormat) {
     return args;
   }
 

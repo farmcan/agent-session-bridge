@@ -1,16 +1,12 @@
 # agent-session-bridge
 
-Move local coding-agent context between `Codex`, `Claude`, `Cursor`, and `Qoder` without re-explaining the task.
+Export local agent sessions into native `Codex`, `Claude`, and `Qoder` session files.
 
-`agent-session-bridge` reads local session data, prefers the session for the current directory, normalizes it into one internal session model, and then exports either:
+The CLI reads the latest session for the current working directory, normalizes it into one internal session model, then exports it into the target agent's native format.
 
-- a native resumable session for the target agent
-- a native session file for a target that does not support resume yet
-- a fallback handoff bundle
+## What It Supports
 
-## Support Matrix
-
-| Source | Target | Default Output | Resume Hint |
+| Source | Target | Default Export | Resume Hint |
 |---|---|---|---|
 | `codex` | `claude` | `claude-session` | `claude --resume ...` |
 | `claude` | `codex` | `codex-session` | `codex resume ...` |
@@ -19,7 +15,6 @@ Move local coding-agent context between `Codex`, `Claude`, `Cursor`, and `Qoder`
 | `qoder` / `qodercli` | `claude` | `claude-session` | `claude --resume ...` |
 | `codex` | `qoder` / `qodercli` | `qoder-session` | not yet |
 | `claude` | `qoder` / `qodercli` | `qoder-session` | not yet |
-| others | others | handoff | n/a |
 
 ## Install
 
@@ -28,72 +23,7 @@ npm install
 npm link
 ```
 
-Then use the global command:
-
-```bash
-agent-session-bridge
-```
-
 ## Quick Start
-
-Run one of these first:
-
-```bash
-agent-session-bridge x2c
-agent-session-bridge c2x
-agent-session-bridge q2x
-agent-session-bridge q2c
-agent-session-bridge x2q
-agent-session-bridge x2r
-agent-session-bridge x2r --json
-```
-
-## Real Example
-
-Input:
-
-```text
-~/.codex/sessions/2026/03/19/rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.jsonl
-```
-
-Output:
-
-```md
-# Agent Session Handoff
-
-Source Agent: codex
-Target Agent: cursor
-Session ID: 019d0592-84fc-7650-b1a2-37bd7d7ac211
-Working Directory: /path/to/project
-Conversation Title: ...
-
-## Suggested Next Step
-
-Start by checking the latest user request...
-
-## Transcript
-
-[user] Please add a dark mode toggle.
-
-[assistant] I found the settings panel and will add the toggle there.
-```
-
-Output:
-
-```md
-# Agent Session Handoff
-
-Source Agent: x
-Target Agent: r
-Session ID: ...
-Working Directory: /path/to/project
-
-## Suggested Next Step
-
-Start by checking the latest user request...
-```
-
-## Usage
 
 ```bash
 agent-session-bridge x2c
@@ -103,333 +33,187 @@ agent-session-bridge q2x
 agent-session-bridge q2c
 agent-session-bridge x2q
 agent-session-bridge c2q
-agent-session-bridge x2r
-agent-session-bridge r2x
-agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
-agent-session-bridge x2r --json
-agent-session-bridge x2r --output-dir ./tmp/bridge-out --json
-agent-session-bridge x2c --handoff
-agent-session-bridge c2x --handoff
-agent-session-bridge c x --split-recent 1 --out ./idea-handoff.md
-agent-session-bridge c x --split-recent 1 --fork "把这个新 idea 单独拉出来" --out ./fork-handoff.md
 ```
 
-Useful automation flags:
+## Route Aliases
 
-- `--session-id <id>`: resolve a session directly when you already have the id
-- `--json`: print machine-readable metadata for generated files or stdout mode
-- `--root <dir>`: override the default session root when testing or scripting
-- `--output-dir <dir>`: keep the default generated file names, but write them into a different directory
-
-If you do not pass `--out` or `--output-dir`, regular handoff files go under:
-
-```text
-./tmp/agent-session-bridge/
-```
-
-Primary route aliases now default to native export:
-
-- `x2c`: install a Claude session under `~/.claude/projects/...` and print `claude --resume <session-id>`
-- `c2x`: install a Codex session under `~/.codex/sessions/YYYY/MM/DD/...` and print `codex resume <session-id>`
-- `x2x`: create a new Codex fork session and print `codex resume <session-id>`
-- `q2x`: install a Codex session and print `codex resume <session-id>`
-- `q2c`: install a Claude session and print `claude --resume <session-id>`
-- `x2q` / `c2q`: export a `qoder-session` bundle under `./tmp/agent-session-bridge/` by default, without a resume hint yet
-
-Use `--handoff` if you explicitly want the old `.md + .start.txt` bundle instead.
-
-The CLI creates missing parent directories automatically for both `--output-dir` and `--out`.
-
-By default, the CLI does not just pick the global latest session. It first tries to find sessions for your current working directory, then falls back to the latest session for that agent if nothing matches.
-
-Claude, Codex, and Qoder/QoderCLI all follow the same ambiguity rule:
-
-- if exactly one matching session matches the current directory, the CLI uses it automatically
-- if multiple matching sessions exist and you are in an interactive terminal, the CLI asks you to choose and shows a short title, timestamp, session id, and full session path
-- if multiple matching sessions exist in non-interactive mode, the CLI fails clearly and tells you to use `--session-id`
-
-Directory matching rules:
-
-- `codex`: match `session_meta.payload.cwd`
-- `claude`: match `cwd` from project transcript entries
-- `qoder` / `qodercli`: match `working_dir`
-- `cursor`: match the Cursor project derived from the current directory
-
-## Handoff Bundle
-
-The default file output now creates two files:
-
-- `agent-handoff-<session>.md`: the full handoff with summary, metadata, suggested next step, and transcript
-- `agent-handoff-<session>.start.txt`: a short startup prompt for the next agent
-
-This is the recommended workflow:
-
-1. Generate the files locally
-2. Give the new agent the `.start.txt`
-3. Let the new agent read the `.md` file itself instead of pasting the whole transcript into context
-
-When you pass `--copy`, the CLI copies the startup prompt, not the raw transcript.
-
-Built-in shortcut aliases:
-
-- `x2x`: `codex -> codex`
-- `x2c`: `codex -> claude`
-- `x2q`: `codex -> qoder`
-- `x2r`: `codex -> cursor`
-- `c2q`: `claude -> qoder`
-- `c2r`: `claude -> cursor`
-- `r2x`: `cursor -> codex`
-- `r2c`: `cursor -> claude`
-- `r2q`: `cursor -> qoder`
-- `q2c`: `qoder -> claude`
-- `c2x`: `claude -> codex`
-- `q2r`: `qoder -> cursor`
-- `q2x`: `qoder -> codex`
-
-Alias defaults:
-
-- `x2c`: native Claude session export
-- `c2x`: native Codex session export
-- `x2x`: native Codex fork export
-- `q2x`: native Codex session export
-- `q2c`: native Claude session export
-- `x2q`: qoder session export
-- `c2q`: qoder session export
-- all other aliases: handoff bundle
-- add `--handoff` to force `.md + .start.txt` output on `x2c`, `c2x`, or `x2x`
+| Alias | Meaning | Default Export |
+|---|---|---|
+| `x2x` | `codex -> codex` | `codex-session` |
+| `x2c` | `codex -> claude` | `claude-session` |
+| `x2q` | `codex -> qoder` | `qoder-session` |
+| `c2x` | `claude -> codex` | `codex-session` |
+| `c2q` | `claude -> qoder` | `qoder-session` |
+| `q2x` | `qoder -> codex` | `codex-session` |
+| `q2c` | `qoder -> claude` | `claude-session` |
 
 Agent shorthands:
 
 - `x`: `codex`
 - `c`: `claude`
-- `r`: `cursor`
 - `q`: `qoder`
 
-If you still want shell aliases, add these to `~/.zshrc`:
+## Examples
+
+Resume a Claude conversation in Codex:
 
 ```bash
-alias x2r='agent-session-bridge x2r --copy'
-alias r2x='agent-session-bridge r2x --copy'
-alias q2x='agent-session-bridge q2x --copy'
-alias c2x='agent-session-bridge c2x --copy'
+agent-session-bridge c2x
 ```
 
-Reload your shell:
+Resume a Codex conversation in Claude:
 
 ```bash
-source ~/.zshrc
+agent-session-bridge x2c
 ```
 
-Then you can run the shell aliases directly:
+Fork the current Codex conversation into a new Codex session:
 
 ```bash
-x2r
-r2x
-q2x
-c2x
+agent-session-bridge x2x
 ```
 
-To verify that `x2r` is really working, run a stdout-only version first:
+Export a Qoder session into Claude:
 
 ```bash
-alias x2r='agent-session-bridge x2r --stdout'
-x2r | sed -n '1,12p'
+agent-session-bridge q2c
 ```
 
-If the alias is working, you should see output like:
+Export a Codex session into Qoder's session format:
+
+```bash
+agent-session-bridge x2q
+```
+
+Use explicit source and target instead of aliases:
+
+```bash
+agent-session-bridge codex claude
+agent-session-bridge qoder codex
+agent-session-bridge claude qoder
+```
+
+## Options
 
 ```text
-# Agent Session Handoff
-
-Source Agent: codex
-Target Agent: cursor
-Session ID: ...
-Source File: ~/.codex/sessions/...
+--agent <agent>
+--target <agent>
+--session <path>
+--session-id <id>
+--out <path>
+--output-dir <dir>
+--export codex-session|claude-session|qoder-session
+--split-recent <n>
+--fork <prompt>
+--fork-file <path>
+--stdout
+--json
+--help
 ```
 
-Then switch back to the clipboard version:
+Useful patterns:
+
+Specify a session directly:
 
 ```bash
-alias x2r='agent-session-bridge x2r --copy'
+agent-session-bridge --agent claude --target codex --session ~/.claude/projects/.../session.jsonl
 ```
 
-## Handoff Transforms
-
-`split` and `fork` are transcript-level transforms on top of handoff generation.
-
-- `--split-recent N`: keep the most recent `N` real user turns and everything after them
-- `--fork "..."`: append one new user idea before generating the next handoff
-- `--fork-file path.txt`: read that new idea from a file instead of the command line
+Resolve by session id:
 
 ```bash
-agent-session-bridge c x --split-recent 1 --out ./idea-handoff.md
-agent-session-bridge c x --split-recent 1 --fork "把这个新 idea 单独拉出来" --out ./fork-handoff.md
-printf '把这条新想法拆出去，单独研究 prompt 和 fork-file 的体验\n' > ./fork.txt
-agent-session-bridge --agent x --fork-file ./fork.txt --copy
+agent-session-bridge --agent codex --target claude --session-id <session-id>
 ```
 
-This is useful for both workflow and token control: the next handoff carries less irrelevant context, which reduces noise and token usage.
+Write to a specific location:
 
-`--fork` and `--fork-file` are intentionally mutually exclusive.
+```bash
+agent-session-bridge x2q --out ./tmp/qoder-session.jsonl --json
+```
 
-The default command writes a file like:
+Write using default filenames into a directory:
+
+```bash
+agent-session-bridge c2x --output-dir ./tmp/exports --json
+```
+
+Show the export body instead of writing files:
+
+```bash
+agent-session-bridge q2c --stdout
+```
+
+## Session Resolution
+
+The CLI does not blindly use the global latest session.
+
+It first tries to find sessions for the current working directory, then falls back to the latest session for that agent if nothing matches.
+
+If multiple matching sessions exist for the current directory:
+
+- interactive terminals get a numbered chooser
+- non-interactive runs fail clearly and ask for `--session-id`
+
+Matching rules:
+
+- `codex`: `session_meta.payload.cwd`
+- `claude`: `cwd` from transcript rows
+- `qoder` / `qodercli`: `working_dir`
+
+## Export Behavior
+
+`codex-session` installs directly into:
 
 ```text
-./agent-handoff-rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.md
-./agent-handoff-rollout-2026-03-19T18-09-41-019d0592-84fc-7650-b1a2-37bd7d7ac211.start.txt
+~/.codex/sessions/YYYY/MM/DD/...
 ```
 
-## Experimental Codex Resume Export
-
-There is now an experimental export path for `claude -> codex resume`.
-
-```bash
-agent-session-bridge claude codex --export codex-session
-agent-session-bridge --agent claude --session ~/.claude/projects/.../session.jsonl --export codex-session
-```
-
-By default, this installs a Codex-shaped `jsonl` session file under `~/.codex/sessions/YYYY/MM/DD/...` and prints a ready-to-run resume command:
+When the export is installed there, the CLI prints:
 
 ```text
-~/.codex/sessions/YYYY/MM/DD/rollout-....jsonl
 Run:
 codex resume <session-id>
 ```
 
-Practical workflow:
-
-```bash
-agent-session-bridge claude codex --export codex-session
-```
-
-If you want to script it, use JSON output and read both `outputPath` and `resumeCommand`:
-
-```bash
-agent-session-bridge claude codex --export codex-session --json
-```
-
-If you explicitly pass `--out` or `--output-dir`, the file is exported there instead of being installed into Codex's session store. In that case the CLI does not print `codex resume ...`, because the file is not yet resumable in place.
-
-Current scope:
-
-- implemented for `claude`
-- emits `session_meta` plus `response_item` user/assistant messages
-- intentionally does not try to recreate tool calls, reasoning, or hidden runtime state
-
-This is experimental on purpose. The regular handoff bundle is still the default workflow.
-
-## Experimental Claude Resume Export
-
-There is now an experimental export path for `codex -> claude resume`.
-
-```bash
-agent-session-bridge codex claude --export claude-session
-agent-session-bridge --agent codex --session ~/.codex/sessions/.../rollout-....jsonl --target claude --export claude-session
-```
-
-By default, this installs a Claude-shaped `jsonl` session file under `~/.claude/projects/<project-key>/...` and prints a ready-to-run resume command:
+`claude-session` installs directly into:
 
 ```text
-~/.claude/projects/<project-key>/<session-id>.jsonl
+~/.claude/projects/<project-key>/...
+```
+
+When the export is installed there, the CLI prints:
+
+```text
 Run:
 claude --resume <session-id>
 ```
 
-Practical workflow:
+`qoder-session` currently exports files only:
+
+- `<session-id>.jsonl`
+- `<session-id>-session.json`
+
+It does not print a resume command yet.
+
+If you use `--out` or `--output-dir`, missing parent directories are created automatically.
+
+## Transforms
+
+The export pipeline can trim or branch a conversation before writing it:
+
+- `--split-recent N`: keep only the most recent `N` real user turns and everything after them
+- `--fork "..."`: append one new user message before export
+- `--fork-file path.txt`: read that message from a file
+
+Examples:
 
 ```bash
-agent-session-bridge codex claude --export claude-session
+agent-session-bridge claude qoder --split-recent 1 --out ./tmp/split.jsonl
+agent-session-bridge claude qoder --fork "另外开一个分支，去做 session split" --out ./tmp/fork.jsonl
 ```
 
-If you want to script it, use JSON output and read both `outputPath` and `resumeCommand`:
+## Current Scope
 
-```bash
-agent-session-bridge codex claude --export claude-session --json
-```
-
-If you explicitly pass `--out` or `--output-dir`, the file is exported there instead of being installed into Claude's session store. In that case the CLI does not print `claude --resume ...`, because the file is not yet resumable in place.
-
-Current scope:
-
-- implemented for `codex`
-- emits a minimal Claude-style `jsonl` transcript with `user` / `assistant` rows
-- intentionally does not try to recreate tool calls, snapshots beyond the minimal bootstrap row, or hidden runtime state
-
-## Use As A Skill
-
-There is also a thin skill wrapper in [skills/agent-session-bridge/SKILL.md](/Users/levi/wrksp/agent-session-bridge/skills/agent-session-bridge/SKILL.md).
-
-The intended split is:
-
-- CLI: the stable backend
-- skill: the agent-facing wrapper that decides which command to run
-
-The skill should generate files and return paths. It should not paste long transcript content into the live conversation unless the user explicitly asks for it.
-
-## How It Works
-
-- Finds the most relevant session for the selected agent based on your current directory
-- Parses the local `jsonl` session log with an agent-specific adapter
-- Pulls extra metadata when available
-- `Qoder` / `QoderCLI`: also reads the sidecar `*-session.json` for title, working directory, and update time
-- Normalizes messages into one shared transcript format
-- Produces a Markdown handoff file plus a startup prompt for the target agent
-- Can also export an experimental Codex-resumable session from Claude transcripts
-
-## Verification
-
-```bash
-npm test
-```
-
-Expected result:
-
-- `node --test` passes
-
-Real smoke tests I used on this machine:
-
-```bash
-agent-session-bridge x2r --session "$(find ~/.codex/sessions -type f -name '*.jsonl' | sort | tail -n 1)" --out /tmp/codex-to-cursor.md
-agent-session-bridge --agent x --session-id 019d0af3-a9bd-79c0-9bd6-7693a84a0442 --stdout
-agent-session-bridge x2r --json
-agent-session-bridge x2r --output-dir ./tmp/bridge-out --json
-agent-session-bridge x2r
-agent-session-bridge claude codex --export codex-session
-agent-session-bridge claude codex --export codex-session --json
-agent-session-bridge claude codex --export codex-session --output-dir ./tmp/bridge-out
-agent-session-bridge c x --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --split-recent 1 --fork "把这个新 idea 单独拉出来，做成 fork" --out /tmp/claude-fork.md
-agent-session-bridge c2x --session "$(find ~/.claude/projects -type f -name '*.jsonl' | sort | tail -n 1)" --export codex-session --out /tmp/claude-to-codex.jsonl
-printf '把这条新想法拆出去，单独研究 prompt 和 fork-file 的体验\n' > /tmp/fork.txt
-agent-session-bridge --agent x --session "$(find ~/.codex/sessions -type f -name '*.jsonl' | sort | tail -n 1)" --fork-file /tmp/fork.txt --out /tmp/fork-file.md
-```
-
-What to check:
-
-- handoff mode writes two files: `*.md` and `*.start.txt`
-- `--copy` copies the `*.start.txt` content, not the raw transcript
-- `--session-id` should resolve the same session without needing a full file path
-- ambiguous Claude matches should prompt in interactive mode instead of silently picking one
-- ambiguous Claude matches should fail in non-interactive mode and tell you to use `--session-id`
-- `--json` should print stable metadata fields like `sessionId`, `sessionPath`, `outputPath`, and `promptPath`, not the full transcript body
-- `--export codex-session` without explicit output path should install into `~/.codex/sessions/YYYY/MM/DD/...`
-- `--export codex-session` should print a `Run: codex resume <session-id>` hint only when the export is installed into Codex's session store
-- `--export codex-session --json` should include `resumeCommand` only when the export is directly resumable
-- regular handoff output should land under `./tmp/agent-session-bridge/`
-- missing parent directories should be created automatically for `--out` and `--output-dir`
-- `--output-dir` should keep the generated filenames but place them under the directory you gave it
-- Codex handoff should start from the real task, not `AGENTS.md` bootstrap noise
-- `--split-recent 1` should keep only the most recent real user turn
-- `--fork` and `--fork-file` should make the new idea become the last user request
-- `--export codex-session` should write `session_meta` plus `response_item` rows
-
-## Roadmap
-
-- Support more agent formats beyond the current adapter set
-- Add session `split` workflows for breaking one transcript into multiple work lines
-- Add session `fork` workflows for branching a new session from current context
-- Improve transcript summarization for long sessions
-- Offer richer target-specific startup prompts
-
-## License
-
-MIT
+- exports visible transcript history only
+- does not preserve hidden reasoning, tool runtime state, or UI state
+- `qoder-session` is implemented as a best-effort native export format, pending future resume support on the Qoder side

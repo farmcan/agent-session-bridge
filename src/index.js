@@ -1,8 +1,4 @@
 import { parseSession } from "./adapters/sources/index.js";
-import {
-  renderHandoff as renderHandoffDocument,
-  renderStartPrompt,
-} from "./adapters/targets/index.js";
 import { renderClaudeSessionExport } from "./adapters/targets/claude-session.js";
 import { renderCodexSessionExport } from "./adapters/targets/codex-session.js";
 import { detectAgent, formatAgentName, getDefaultRoot, supportedAgents } from "./core/agents.js";
@@ -18,20 +14,9 @@ export {
   formatAgentName,
   getDefaultRoot,
   parseSession,
-  renderStartPrompt,
   splitSession,
   supportedAgents,
 };
-
-export async function renderHandoff({ sessionPath, agent, target = "cursor", session: providedSession = null }) {
-  const session = providedSession ?? (await parseSession({ sessionPath, agent }));
-  return renderHandoffDocument({
-    sessionPath,
-    sourceAgent: agent,
-    targetAgent: target,
-    session,
-  });
-}
 
 export async function renderCodexResumeExport({
   sessionPath,
