@@ -87,6 +87,50 @@ kage x2q
 kage c2q
 ```
 
+## Practical Test
+
+The most convincing way to validate `kage` is to resume a real session in one agent, export it, then resume it in another.
+
+For example, start from a Claude session:
+
+```text
+Resume this session with:
+claude --resume b3b958d7-4ac8-41c4-8660-7b7f654737c6
+```
+
+Then run:
+
+```bash
+kage c2x
+```
+
+If multiple Claude sessions match the current directory, `kage` will ask you to choose:
+
+```text
+Multiple Claude sessions match the current directory:
+1. a=100,b=200,a+b=?
+   2026-03-22T14:49:54.695Z  b3b958d7-4ac8-41c4-8660-7b7f654737c6
+   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
+2. a=1,b=2,a+b=?
+   2026-03-22T14:49:13.552Z  a3ac68c7-76f4-44ef-a619-f04f19b49c83
+   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/a3ac68c7-76f4-44ef-a619-f04f19b49c83.jsonl
+3. 查看并了解当前代码
+   2026-03-20T13:26:27.783Z  33d6decd-7776-4fba-b1d6-50b904c07010
+   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/33d6decd-7776-4fba-b1d6-50b904c07010.jsonl
+Select a session [1-3]: 1
+/Users/you/.codex/sessions/2026/03/22/rollout-2026-03-22T14-49-54-695Z-b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
+Run:
+codex resume b3b958d7-4ac8-41c4-8660-7b7f654737c6
+```
+
+Finally, resume it in Codex:
+
+```bash
+codex resume b3b958d7-4ac8-41c4-8660-7b7f654737c6
+```
+
+If the export worked, Codex opens in the same project directory and continues from the imported context.
+
 ## Route Aliases
 
 | Alias | Meaning | Default Export |

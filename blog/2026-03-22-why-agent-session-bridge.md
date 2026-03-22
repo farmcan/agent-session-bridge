@@ -1,4 +1,12 @@
-# Agent 影分身：让上下文可以分叉，也可以接力
+# Kage：在 Codex、Claude 和 QoderCLI 之间 Fork 与迁移 Session
+
+_本文组织结构：安装和功能案例 -> 两个真实需求 -> session / resume -> 实现 -> 未来_
+
+能力：
+
+- `Kage` 可以把 `Codex`、`Claude`、`QoderCLI` 的本地 session 直接导成另一个 agent 可继续 `resume` 的原生 session。
+
+- 自动探测当前目录下最相关的 session，在有多个候选时让你选择，并基于已有上下文直接 fork 一个新分支。
 
 项目地址：
 `https://github.com/farmcan/agent-session-bridge`
@@ -23,13 +31,54 @@ kage x2x  # Codex -> Codex，把当前 Codex session fork 成一个新分支
 - `x`: `codex`
 - `q`: `qoder`
 
+推荐测试：
+
+```bash
+# 同一个项目目录里，先连续跑两个 Claude session
+claude 'a=100,b=200,a+b=?'
+claude 'a=1,b=2,a+b=?'
+
+# 然后执行迁移
+kage c2x
+
+# 最后执行它打印出来的 resume 命令
+codex resume <session-id>
+```
+
+这一步通常会出现一个选择器，让你从当前目录下的 Claude session 里挑一个：
+
+```text
+➜  agentkit git:(fix/tool-history-early-errors) ✗ kage c2x
+Multiple Claude sessions match the current directory:
+1. a=100,b=200,a+b=?
+   2026-03-22T14:49:54.695Z  b3b958d7-4ac8-41c4-8660-7b7f654737c6
+   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
+2. a=1,b=2,a+b=?
+   2026-03-22T14:49:13.552Z  a3ac68c7-76f4-44ef-a619-f04f19b49c83
+   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/a3ac68c7-76f4-44ef-a619-f04f19b49c83.jsonl
+3. 查看并了解当前代码
+   2026-03-20T13:26:27.783Z  33d6decd-7776-4fba-b1d6-50b904c07010
+   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/33d6decd-7776-4fba-b1d6-50b904c07010.jsonl
+Select a session [1-3]: 1
+/Users/you/.codex/sessions/2026/03/22/rollout-2026-03-22T14-49-54-695Z-b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
+Run:
+codex resume b3b958d7-4ac8-41c4-8660-7b7f654737c6
+
+➜  agentkit git:(fix/tool-history-early-errors) ✗ codex resume b3b958d7-4ac8-41c4-8660-7b7f654737c6
+› a+b=?
+```
+
+如果这一步能直接在 Codex 里继续同一个问题，说明这条 `Claude -> Codex` 的接力链路是通的。
+
+注：qodercli 目前没有显示支持 resume，所以 -> qoder 暂时不通，但是运行 kage c2q 会产生 qodercli 可识别的 context.jsonl 文件和 meta.json 文件，可以直接将文件丢给 qodercli 让它自己分析。—— 已经在社区提了 request，相信 qodercli 会跟进的。
+
 ---
 
 **正文由此开始**
 
 ---
 
-因为工作和个人兴趣的关系，我平时会混着用 `Claude`、`QoderCLI`、`Codex` 这些 coding agent。
+因为工作和个人兴趣的关系，我平时会混着用 `Claude`、`Codex` 、`QoderCLI`、`cursor-cli（现改名为 agent 😓）`、`auggie`  这些 coding agent cli 产品。
 
 慢慢地，我发现自己反复遇到以下两种需求。
 
@@ -163,34 +212,108 @@ CLI 我给它取名叫 `kage`，就是借了“火影忍者多重影分身”的
 
 做这个项目时，我最关心的一个问题就是：各家说的 `resume`，到底恢复的是什么？
 
-我的结论是：
+结论：
 
-- 它通常恢复的是“可继续的工作记忆”
+- 它恢复的是“可继续的工作记忆”
 - 而不是完整恢复一个仍在运行的 agent 进程
 
-这个判断一半来自本地真实 session 文件，一半来自 `Codex` 的开源源码。
+这个判断一半来自本地真实 session 文件，一半来自 `Codex` 的开源代码分析⬇️
 
-就 `Codex` 来说，至少能确认这几件事：
+如果只看 `Codex`，它的实现其实已经比较清楚了，大致可以拆成三层。
+
+### 4.1 命令入口
+
+`codex resume` 不是直接在基础命令上暴露一个公开 flag，而是顶层子命令把参数转成内部控制字段，再交给 TUI。  
+在 `codex-rs/tui/src/cli.rs` 里能看到这些字段：
+
+- `resume_picker`
+- `resume_last`
+- `resume_session_id`
+- `resume_show_all`
+
+也就是说，`codex resume` 至少支持三种入口：
+
+- 打开 picker 让用户选
+- 恢复最近一次 session
+- 按 `session id` 直接恢复
+
+对应源码：
+
+- `tui/src/cli.rs`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/codex-rs/tui/src/cli.rs
+- `tui/src/lib.rs`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/codex-rs/tui/src/lib.rs
+
+### 4.2 索引和选择
+
+这里不只是“扫一遍 `~/.codex/sessions`”。`Codex` 还维护了一层额外索引：
 
 - 本地完整会话保存在 `~/.codex/sessions/...` 下
-- `~/.codex/session_index.jsonl` 提供了最近线程摘要
+- `~/.codex/session_index.jsonl` 提供 thread id、thread name、updated_at 这类索引信息
 - `~/.codex/history.jsonl` 提供了跨 session 的轻量文本历史
-- 官方仓库里有明确的 `resume picker` 实现
 
-具体到源码层，我查到的关键位置有：
+`codex-rs/core/src/rollout/session_index.rs` 里能看到，这个索引文件本身是 append-only 的，查询时会从文件尾部往前扫，取最新一条匹配记录。  
+所以 `resume by name` 和 `resume by id` 用的都不是简单的“全目录最新文件”，而是“索引里的最新有效映射”。
 
-- `codex-rs/tui/src/cli.rs`
-- `codex-rs/tui/src/resume_picker.rs`
-- `codex-rs/tui/src/app.rs`
-- `docs/tui-chat-composer.md`
+`codex-rs/tui/src/resume_picker.rs` 则对应交互式 picker。这里还能看到一些更具体的产品设计：
 
-从这些文件和本地落盘结构结合起来看，`Codex` 的 `resume` 不是简单地“把旧 transcript 打开”，而是：
+- picker 默认按 provider 过滤
+- 默认按当前工作目录过滤
+- `--all` 才会取消 cwd 过滤
+- 列表本身是分页加载的，不是一次性把所有 session 全读进来
 
-- 先通过索引和 picker 找到目标线程
-- 再根据 rollout/session 日志恢复成一个可继续的 thread
-- 同时按原 session 的 `cwd` 重建对应配置
+对应源码：
 
-前面的最小样例，刚好可以帮助理解这里的差异。
+- `core/src/rollout/session_index.rs`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/codex-rs/core/src/rollout/session_index.rs
+- `tui/src/resume_picker.rs`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/codex-rs/tui/src/resume_picker.rs
+
+### 4.3 真正的恢复
+
+这一层不在 TUI，而在 app-server 的 `thread/resume` 实现里。  
+在协议定义里，`ThreadResumeParams` 明确写了有三种恢复来源：
+
+- `thread_id`
+- `history`
+- `path`
+
+而且优先级是：
+
+- `history > path > thread_id`
+
+这点在 `codex-rs/app-server/src/codex_message_processor.rs` 里也能对上：
+
+- `resume_thread_from_history(...)`
+- `resume_thread_from_rollout(...)`
+- `load_thread_from_resume_source_or_send_internal(...)`
+
+具体来说：
+
+- 如果给的是 `thread_id`，它会先去找 rollout 路径，再从磁盘加载 rollout history
+- 如果给的是 `path`，就直接按这个 rollout 文件恢复
+- 如果给的是 `history`，就直接用内存里的历史构造 resumed / forked thread
+
+所以 `resume` 不是简单地“把旧 transcript 打开”，而是把 rollout history 重新装配成一个可继续的 thread 对象，并把 `turns`、`preview`、`path`、`cwd` 这些状态重新挂回去。
+
+这也是为什么官方 schema 里会特别写：
+
+- `thread/resume`
+- `thread/fork`
+- `thread/read`
+
+这些接口返回的 `Thread` / `Turn` 才会带上恢复所需的历史项，而不是所有场景都默认带完整 turns。
+
+对应源码：
+
+- `app-server/src/codex_message_processor.rs`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/codex-rs/app-server/src/codex_message_processor.rs
+- `app-server-protocol ... ThreadResumeParams`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json
+- `docs/tui-chat-composer.md`  
+  https://github.com/openai/codex/blob/dcc4d7b634e0c732e5dab9ab04b6f3b67bfa55f1/docs/tui-chat-composer.md
+
+前面的最小样例，刚好可以帮助理解这里的差异。而在后续的实现中，也利用了这种思路，支持按需选择 session。
 
 ## 5. “分身”和“接力”各自为什么有效
 
