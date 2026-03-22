@@ -15,6 +15,8 @@ const removedRouteAliases = new Set(["x2r", "c2r", "q2r", "r2x", "r2c", "r2q"]);
 const removedOptions = new Set(["--handoff", "--copy", "--cursor"]);
 
 const helpText = `Usage:
+  kage <source> <target> [options]
+  kage <route-alias> [options]
   agent-session-bridge <source> <target> [options]
   agent-session-bridge <route-alias> [options]
 

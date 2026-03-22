@@ -344,9 +344,17 @@ test("chooseSessionPath returns interactive selection", async () => {
 test("cli --help only documents native export commands", async () => {
   const result = await spawnCli(["--help"]);
   assert.equal(result.code, 0);
+  assert.match(result.stdout, /kage <source> <target> \[options\]/);
+  assert.match(result.stdout, /agent-session-bridge <source> <target> \[options\]/);
   assert.doesNotMatch(result.stdout, /--handoff/);
   assert.doesNotMatch(result.stdout, /--copy/);
   assert.doesNotMatch(result.stdout, /x2r/);
+});
+
+test("package.json exposes kage and legacy agent-session-bridge bins", async () => {
+  const packageJson = JSON.parse(await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8"));
+  assert.equal(packageJson.bin.kage, "./src/cli.js");
+  assert.equal(packageJson.bin["agent-session-bridge"], "./src/cli.js");
 });
 
 test("cli fails clearly for removed handoff flags and cursor aliases", async () => {

@@ -4,6 +4,9 @@ Export local agent sessions into native `Codex`, `Claude`, and `Qoder` session f
 
 The CLI reads the latest session for the current working directory, normalizes it into one internal session model, then exports it into the target agent's native format.
 
+The CLI command is `kage`.
+The name comes from the "shadow clone" idea: a useful coding agent should be able to fork its current working context into parallel branches instead of forcing every task through one linear loop.
+
 ## Why It Exists
 
 `agent-session-bridge` is built around two practical workflows.
@@ -60,16 +63,22 @@ npm install
 npm link
 ```
 
+Then use:
+
+```bash
+kage c2x
+```
+
 ## Quick Start
 
 ```bash
-agent-session-bridge c2x
-agent-session-bridge x2c
-agent-session-bridge x2x
-agent-session-bridge q2x
-agent-session-bridge q2c
-agent-session-bridge x2q
-agent-session-bridge c2q
+kage c2x
+kage x2c
+kage x2x
+kage q2x
+kage q2c
+kage x2q
+kage c2q
 ```
 
 ## Route Aliases
@@ -93,9 +102,9 @@ Agent shorthands:
 Use explicit source and target instead of aliases:
 
 ```bash
-agent-session-bridge codex claude
-agent-session-bridge qoder codex
-agent-session-bridge claude qoder
+kage codex claude
+kage qoder codex
+kage claude qoder
 ```
 
 ## Options
@@ -121,31 +130,31 @@ Useful patterns:
 Specify a session directly:
 
 ```bash
-agent-session-bridge --agent claude --target codex --session ~/.claude/projects/.../session.jsonl
+kage --agent claude --target codex --session ~/.claude/projects/.../session.jsonl
 ```
 
 Resolve by session id:
 
 ```bash
-agent-session-bridge --agent codex --target claude --session-id <session-id>
+kage --agent codex --target claude --session-id <session-id>
 ```
 
 Write to a specific location:
 
 ```bash
-agent-session-bridge x2q --out ./tmp/qoder-session.jsonl --json
+kage x2q --out ./tmp/qoder-session.jsonl --json
 ```
 
 Write using default filenames into a directory:
 
 ```bash
-agent-session-bridge c2x --output-dir ./tmp/exports --json
+kage c2x --output-dir ./tmp/exports --json
 ```
 
 Show the export body instead of writing files:
 
 ```bash
-agent-session-bridge q2c --stdout
+kage q2c --stdout
 ```
 
 ## Session Resolution

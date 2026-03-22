@@ -5,6 +5,7 @@
   "type": "module",
   "main": "./src/index.js",
   "bin": {
+    "kage": "./src/cli.js",
     "agent-session-bridge": "./src/cli.js"
   },
   "files": [
