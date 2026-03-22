@@ -59,14 +59,20 @@ agent-session-bridge claude qoder --fork "另外开一个分支，去做 session
 ## Install
 
 ```bash
-npm install
-npm link
+curl -fsSL https://raw.githubusercontent.com/farmcan/agent-session-bridge/main/install.sh | bash
 ```
 
 Then use:
 
 ```bash
 kage c2x
+```
+
+For local development:
+
+```bash
+npm install
+npm link
 ```
 
 ## Quick Start
