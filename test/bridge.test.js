@@ -404,7 +404,7 @@ test("chooseSessionPath renders candidates as spaced cards with recent user mess
     (error) => {
       assert.match(error.message, /\[1\] 做一下 Claude export/);
       assert.match(error.message, /Recent user messages:\n    - 做一下 Claude export\n    - 顺手检查 qoder export\n    - 这个报错要不要一起修/);
-      assert.match(error.message, /\n\n\[2\] 总结一下你的上下文/);
+      assert.match(error.message, /\n\n\n\[2\] 总结一下你的上下文/);
       assert.match(error.message, /Path: \/tmp\/a\.jsonl/);
       return true;
     },
@@ -440,6 +440,30 @@ test("chooseSessionPath returns interactive selection", async () => {
   assert.match(writes.join(""), /Multiple Codex sessions match the current directory/);
 });
 
+test("chooseSessionPath shows the selected card even when there is only one candidate", async () => {
+  const writes = [];
+  const selected = await chooseSessionPath(
+    "Claude",
+    [
+      {
+        sessionPath: "/tmp/only.jsonl",
+        sessionId: "only",
+        updatedAt: "2026-03-21T10:00:00.000Z",
+        title: "唯一候选",
+        recentUserMessages: ["最后一条用户消息"],
+      },
+    ],
+    {
+      isInteractive: false,
+      output: { write: (chunk) => writes.push(chunk) },
+    },
+  );
+
+  assert.equal(selected, "/tmp/only.jsonl");
+  assert.match(writes.join(""), /\[1\] 唯一候选/);
+  assert.match(writes.join(""), /Selected: only/);
+});
+
 test("cli --help only documents native export commands", async () => {
   const result = await spawnCli(["--help"]);
   assert.equal(result.code, 0);
@@ -473,6 +497,77 @@ test("cli reports supported aliases for unknown route aliases", async () => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /Unknown route alias: q2q/);
   assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2c, c2x, c2q, q2x, q2c/);
+  assert.match(result.stderr, /Run: kage update/);
+});
+
+test("cli supports update command", async () => {
+  const result = await spawnCli(["update"], {
+    env: { ...process.env, KAGE_UPDATE_COMMAND: "printf 'Updated kage\\n'" },
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Updated kage/);
+});
+
+test("cli shows the selected session card when only one match exists", async () => {
+  const currentDir = await makeTempDir("qoder-single-workspace");
+  const sessionsRoot = await makeTempDir("qoder-single-sessions");
+  const projectDir = path.join(sessionsRoot, "demo");
+  await fs.mkdir(projectDir, { recursive: true });
+  await fs.writeFile(
+    path.join(projectDir, "session.jsonl"),
+    [
+      `{"type":"user","cwd":"${currentDir}","sessionId":"qoder-one","message":{"role":"user","content":[{"type":"text","text":"先看一下 qoder session"}]}}`,
+      `{"type":"assistant","cwd":"${currentDir}","sessionId":"qoder-one","message":{"role":"assistant","content":[{"type":"text","text":"好的"}]}}`,
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(projectDir, "session-session.json"),
+    JSON.stringify({
+      id: "qoder-one",
+      title: "Qoder Only Session",
+      working_dir: currentDir,
+      updated_at: Date.parse("2026-03-21T10:00:00.000Z"),
+    }),
+    "utf8",
+  );
+
+  const fakeHome = await makeTempDir("q2c-home");
+  const result = await spawnCli(["q2c", "--root", sessionsRoot], {
+    cwd: currentDir,
+    env: { ...process.env, HOME: fakeHome },
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stderr, /\[1\] Qoder Only Session/);
+  assert.match(result.stderr, /Selected: qoder-one/);
+  assert.match(result.stdout, /claude --resume qoder-one/);
+});
+
+test("cli supports single-agent list mode", async () => {
+  const currentDir = await makeTempDir("claude-list-workspace");
+  const sessionsRoot = await makeTempDir("claude-list-sessions");
+  const projectDir = path.join(sessionsRoot, "-workspace");
+  await fs.mkdir(projectDir, { recursive: true });
+  await fs.writeFile(
+    path.join(projectDir, "aaa.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"先看 issue"},"timestamp":"2026-03-20T10:00:00.000Z","cwd":"${currentDir}","sessionId":"aaa"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(projectDir, "bbb.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"总结一下上下文"},"timestamp":"2026-03-20T11:00:00.000Z","cwd":"${currentDir}","sessionId":"bbb"}\n`,
+    "utf8",
+  );
+
+  const result = await spawnCli(["c", "--root", sessionsRoot], { cwd: currentDir });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Matching Claude sessions for/);
+  assert.match(result.stdout, /\[1\]/);
+  assert.match(result.stdout, /\[2\]/);
+  assert.match(result.stdout, /总结一下上下文/);
+  assert.doesNotMatch(result.stdout, /Run:/);
 });
 
 test("cli supports shorthand positional source and target agents", async () => {

@@ -8,6 +8,9 @@
 - Added `c2c` so Claude sessions can be forked into new native Claude sessions and resumed with a fresh session id.
 - 增加了 `c2c`，支持把 Claude session fork 成新的原生 Claude session，并使用新的 session id 继续恢复。
 
+- Added `kage update` and shorthand list commands like `kage c`, `kage q`, and `kage x`.
+- 增加了 `kage update`，以及 `kage c`、`kage q`、`kage x` 这类简写的 session 列表命令。
+
 - Tolerate corrupted JSONL rows during session discovery so one bad transcript does not break the whole scan.
 - 在 session 发现阶段容忍损坏的 JSONL 行，避免单个坏文件导致整个扫描流程失败。
 

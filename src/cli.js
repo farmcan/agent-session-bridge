@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,8 @@ const removedRouteAliases = new Set(["x2r", "c2r", "q2r", "r2x", "r2c", "r2q"]);
 const removedOptions = new Set(["--handoff", "--copy", "--cursor"]);
 
 const helpText = `Usage:
+  kage update
+  kage <agent>
   kage <source> <target> [options]
   kage <route-alias> [options]
   agent-session-bridge <source> <target> [options]
@@ -61,6 +64,8 @@ function applyPreset(args, preset) {
 
 function parseArgs(argv) {
   const args = {
+    update: false,
+    listAgent: null,
     agent: null,
     root: null,
     session: null,
@@ -129,6 +134,12 @@ function parseArgs(argv) {
   }
 
   const [first, second] = positional;
+  if (first === "update" && !second) {
+    return { ...args, update: true };
+  }
+  if (first && !second && (supportedAgents.includes(first) || shorthandAgents.includes(first))) {
+    return { ...args, listAgent: first };
+  }
   if (first && removedRouteAliases.has(first)) {
     return { ...args, error: `Unsupported route alias: ${first}` };
   }
@@ -139,7 +150,10 @@ function parseArgs(argv) {
     });
   }
   if (first && !second && /^[a-z]2[a-z]$/u.test(first)) {
-    return { ...args, error: `Unknown route alias: ${first}. Supported aliases: ${supportedRouteAliasList}` };
+    return {
+      ...args,
+      error: `Unknown route alias: ${first}. Supported aliases: ${supportedRouteAliasList}\nRun: kage update`,
+    };
   }
   if (
     first &&
@@ -164,6 +178,35 @@ async function resolveForkPrompt(args) {
   }
 
   return args.forkPrompt;
+}
+
+export async function runUpdateCommand({
+  command = process.env.KAGE_UPDATE_COMMAND ?? "curl -fsSL https://raw.githubusercontent.com/farmcan/agent-session-bridge/main/install.sh | bash",
+  stdout = process.stdout,
+  stderr = process.stderr,
+} = {}) {
+  const shell = process.env.SHELL || "sh";
+  await new Promise((resolve, reject) => {
+    const child = spawn(shell, ["-lc", command], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+    });
+
+    child.stdout.on("data", (chunk) => {
+      stdout.write(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr.write(chunk);
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`Update failed with exit code ${code}`));
+    });
+  });
 }
 
 function emitResult(payload, asJson) {
@@ -229,6 +272,15 @@ function formatSessionCandidate(candidate, index) {
   ].join("\n");
 }
 
+function formatSessionCandidates(candidates) {
+  return candidates.map(formatSessionCandidate).join("\n\n\n");
+}
+
+function emitSelectedSession(output, candidate) {
+  output.write(`${formatSessionCandidate(candidate, 0)}\n`);
+  output.write(`Selected: ${candidate.sessionId}\n`);
+}
+
 export async function chooseSessionPath(
   agentLabel,
   candidates,
@@ -243,18 +295,19 @@ export async function chooseSessionPath(
   }
 
   if (candidates.length === 1) {
+    emitSelectedSession(output, candidates[0]);
     return candidates[0].sessionPath;
   }
 
   if (!isInteractive) {
-    const options = candidates.map(formatSessionCandidate).join("\n\n");
+    const options = formatSessionCandidates(candidates);
     throw new Error(
       `Multiple ${agentLabel} sessions match the current directory.\n${options}\nUse --session-id to choose one explicitly.`,
     );
   }
 
   output.write(`Multiple ${agentLabel} sessions match the current directory:\n`);
-  output.write(`\n${candidates.map(formatSessionCandidate).join("\n\n")}\n`);
+  output.write(`\n${formatSessionCandidates(candidates)}\n`);
 
   const ask = prompt ?? (async () => {
     output.write(`Select a session [1-${candidates.length}]: `);
@@ -287,6 +340,33 @@ function formatSessionLabel(agent) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+async function buildSessionCandidates(args) {
+  const rootDir = args.root ?? getDefaultRoot(args.agent ?? "codex");
+  const resolvedAgent = formatAgentName(args.agent ?? "codex");
+  const matches = await findMatchingSessions(rootDir, {
+    cwd: process.cwd(),
+    agent: resolvedAgent,
+  });
+  return Promise.all(
+    matches
+      .sort()
+      .reverse()
+      .map(async (sessionPath) => {
+        const session = await parseSession({ sessionPath, agent: resolvedAgent });
+        return {
+          sessionPath,
+          sessionId: session.sessionId,
+          updatedAt: session.updatedAt,
+          title: getSessionTitle(session),
+          recentUserMessages: getRealUserMessages(session)
+            .slice(-3)
+            .reverse()
+            .map((message) => formatSessionTitle(message.text)),
+        };
+      }),
+  );
+}
+
 async function resolveSessionPath(args) {
   const rootDir = args.root ?? getDefaultRoot(args.agent ?? "codex");
   if (args.session) {
@@ -299,31 +379,9 @@ async function resolveSessionPath(args) {
     });
   }
 
-  const resolvedAgent = formatAgentName(args.agent ?? "codex");
-  const matches = await findMatchingSessions(rootDir, {
-    cwd: process.cwd(),
-    agent: resolvedAgent,
-  });
-  if (matches.length > 1) {
-    const candidates = await Promise.all(
-      matches
-        .sort()
-        .reverse()
-        .map(async (sessionPath) => {
-          const session = await parseSession({ sessionPath, agent: resolvedAgent });
-          return {
-            sessionPath,
-            sessionId: session.sessionId,
-            updatedAt: session.updatedAt,
-            title: getSessionTitle(session),
-            recentUserMessages: getRealUserMessages(session)
-              .slice(-3)
-              .reverse()
-              .map((message) => formatSessionTitle(message.text)),
-          };
-        }),
-    );
-    return chooseSessionPath(formatSessionLabel(resolvedAgent), candidates);
+  const candidates = await buildSessionCandidates(args);
+  if (candidates.length > 0) {
+    return chooseSessionPath(formatSessionLabel(args.agent ?? "codex"), candidates);
   }
 
   return findLatestSession(rootDir, {
@@ -336,6 +394,20 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     process.stdout.write(`${helpText}\n`);
+    return;
+  }
+  if (args.update) {
+    await runUpdateCommand();
+    return;
+  }
+  if (args.listAgent) {
+    const resolvedAgent = formatAgentName(args.listAgent);
+    const candidates = await buildSessionCandidates({ ...args, agent: resolvedAgent });
+    if (candidates.length === 0) {
+      throw new Error(`No ${formatSessionLabel(resolvedAgent)} sessions match the current directory`);
+    }
+    process.stdout.write(`Matching ${formatSessionLabel(resolvedAgent)} sessions for ${process.cwd()}:\n\n`);
+    process.stdout.write(`${formatSessionCandidates(candidates)}\n`);
     return;
   }
   if (args.error) {

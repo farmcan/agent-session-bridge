@@ -73,6 +73,7 @@ Then use:
 
 ```bash
 kage c2x
+kage update
 ```
 
 To upgrade a previous install from this script, run the same install command again.
@@ -91,6 +92,9 @@ kage c2x
 kage c2c
 kage x2c
 kage x2x
+kage c
+kage q
+kage x
 kage q2x
 kage q2c
 kage x2q
@@ -160,6 +164,8 @@ Agent shorthands:
 - `c`: `claude`
 - `q`: `qoder`
 
+You can also run `kage x`, `kage c`, or `kage q` to list matching sessions for the current directory without exporting.
+
 Use explicit source and target instead of aliases:
 
 ```bash
@@ -189,6 +195,12 @@ If you mistype a route alias such as `q2q`, `kage` reports the unknown alias and
 ```
 
 Useful patterns:
+
+Upgrade an existing install:
+
+```bash
+kage update
+```
 
 Specify a session directly:
 
