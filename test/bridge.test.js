@@ -434,6 +434,13 @@ test("cli fails clearly for removed handoff flags and cursor aliases", async () 
   assert.match(removedAliasResult.stderr, /Unsupported route alias: x2r/);
 });
 
+test("cli reports supported aliases for unknown route aliases", async () => {
+  const result = await spawnCli(["q2q"]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Unknown route alias: q2q/);
+  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2x, c2q, q2x, q2c/);
+});
+
 test("cli supports shorthand positional source and target agents", async () => {
   const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
   const result = await spawnCli(["c", "x", "--session", sessionPath, "--stdout"]);

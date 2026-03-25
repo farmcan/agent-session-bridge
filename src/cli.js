@@ -11,6 +11,7 @@ import { resolveInstallPlan } from "./core/install.js";
 import { inferDefaultExportFormat, routeAliases } from "./core/routing.js";
 
 const shorthandAgents = ["c", "x", "q"];
+const supportedRouteAliasList = Object.keys(routeAliases).join(", ");
 const removedRouteAliases = new Set(["x2r", "c2r", "q2r", "r2x", "r2c", "r2q"]);
 const removedOptions = new Set(["--handoff", "--copy", "--cursor"]);
 
@@ -135,6 +136,9 @@ function parseArgs(argv) {
       ...applyPreset(args, routeAliases[first]),
       routeAlias: first,
     });
+  }
+  if (first && !second && /^[a-z]2[a-z]$/u.test(first)) {
+    return { ...args, error: `Unknown route alias: ${first}. Supported aliases: ${supportedRouteAliasList}` };
   }
   if (
     first &&

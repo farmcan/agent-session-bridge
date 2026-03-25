@@ -157,6 +157,8 @@ kage qoder codex
 kage claude qoder
 ```
 
+If you mistype a route alias such as `q2q`, `kage` reports the unknown alias and prints the supported alias list.
+
 ## Options
 
 ```text
