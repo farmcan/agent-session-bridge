@@ -283,6 +283,31 @@ test("findMatchingSessions returns Claude cwd matches", async () => {
   assert.deepEqual(matches.map((filePath) => path.basename(filePath)), ["aaa.jsonl", "bbb.jsonl"]);
 });
 
+test("findMatchingSessions skips unreadable Claude jsonl rows and keeps scanning", async () => {
+  const currentDir = await makeTempDir("claude-corrupt-match-workspace");
+  const sessionsRoot = await makeTempDir("claude-corrupt-projects");
+  const targetDir = path.join(sessionsRoot, "-workspace");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "aaa.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T10:00:00.000Z","cwd":"${currentDir}","sessionId":"aaa"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "broken.jsonl"),
+    `${String.fromCharCode(0, 0, 0)}{"type":"user","message":{"role":"user","content":"broken"},"timestamp":"2026-03-20T10:30:00.000Z","cwd":"${currentDir}","sessionId":"broken"}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "bbb.jsonl"),
+    `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-03-20T11:00:00.000Z","cwd":"${currentDir}","sessionId":"bbb"}\n`,
+    "utf8",
+  );
+
+  const matches = await findMatchingSessions(sessionsRoot, { cwd: currentDir, agent: "claude" });
+  assert.deepEqual(matches.map((filePath) => path.basename(filePath)), ["aaa.jsonl", "bbb.jsonl"]);
+});
+
 test("findSessionById finds a Codex session by id", async () => {
   const sessionsRoot = path.join(__dirname, "..", "fixtures", "sessions");
   const found = await findSessionById(sessionsRoot, { agent: "codex", sessionId: "later" });

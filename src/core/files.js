@@ -21,7 +21,13 @@ export async function readJsonl(filePath) {
   return raw
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line));
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
 }
 
 export async function readJson(filePath) {

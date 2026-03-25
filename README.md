@@ -217,6 +217,7 @@ If multiple matching sessions exist for the current directory:
 
 - interactive terminals get a numbered chooser
 - non-interactive runs fail clearly and ask for `--session-id`
+- malformed JSONL rows are ignored during session discovery so one corrupted transcript does not block the whole scan
 
 Matching rules:
 
