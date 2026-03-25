@@ -189,11 +189,18 @@ function formatSessionTitle(title, maxLength = 48) {
   return `${normalized.slice(0, maxLength - 3)}...`;
 }
 
+function isIgnorableSessionTitleMessage(text) {
+  const normalized = String(text ?? "").trimStart();
+  return normalized.startsWith("<environment_context>") || normalized.startsWith("<turn_aborted>");
+}
+
 function getSessionTitle(session) {
   if (session.title) {
     return formatSessionTitle(session.title);
   }
-  const firstUserMessage = session.messages.find((message) => message.role === "user" && message.text.trim());
+  const firstUserMessage = session.messages.find(
+    (message) => message.role === "user" && message.text.trim() && !isIgnorableSessionTitleMessage(message.text),
+  );
   return formatSessionTitle(firstUserMessage?.text);
 }
 

@@ -546,6 +546,39 @@ test("cli fails clearly for ambiguous Codex sessions in non-interactive mode", a
   assert.match(result.stderr, /Multiple Codex sessions match the current directory/);
 });
 
+test("cli shows the first real user prompt instead of Codex environment context in session choices", async () => {
+  const currentDir = await makeTempDir("codex-cli-title-workspace");
+  const sessionsRoot = await makeTempDir("codex-cli-title-sessions");
+  const targetDir = path.join(sessionsRoot, "2026", "03", "22");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-22T10-00-00-aaa.jsonl"),
+    [
+      `{"timestamp":"2026-03-22T10:00:00.000Z","type":"session_meta","payload":{"id":"aaa","cwd":"${currentDir}"}}`,
+      '{"timestamp":"2026-03-22T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\\n  <cwd>/tmp/demo</cwd>\\n</environment_context>"}]}}',
+      '{"timestamp":"2026-03-22T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"总结一下你的上下文"}]}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-22T11-00-00-bbb.jsonl"),
+    [
+      `{"timestamp":"2026-03-22T11:00:00.000Z","type":"session_meta","payload":{"id":"bbb","cwd":"${currentDir}"}}`,
+      '{"timestamp":"2026-03-22T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\\n  <cwd>/tmp/demo</cwd>\\n</environment_context>"}]}}',
+      '{"timestamp":"2026-03-22T11:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<turn_aborted>"}]}}',
+      '{"timestamp":"2026-03-22T11:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"做一下 Claude export"}]}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const result = await spawnCli(["codex", "claude", "--root", sessionsRoot], { cwd: currentDir });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /总结一下你的上下文/);
+  assert.match(result.stderr, /做一下 Claude export/);
+  assert.doesNotMatch(result.stderr, /<environment_context>/);
+  assert.doesNotMatch(result.stderr, /<turn_aborted>/);
+});
+
 test("cli installs default Codex exports into the real Codex session directory", async () => {
   const fakeHome = await makeTempDir("codex-home");
   const result = await spawnCli(

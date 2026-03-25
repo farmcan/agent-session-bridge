@@ -216,6 +216,7 @@ It first tries to find sessions for the current working directory, then falls ba
 If multiple matching sessions exist for the current directory:
 
 - interactive terminals get a numbered chooser
+- chooser titles prefer the first real user prompt instead of bootstrap metadata like Codex environment context
 - non-interactive runs fail clearly and ask for `--session-id`
 - malformed JSONL rows are ignored during session discovery so one corrupted transcript does not block the whole scan
 
