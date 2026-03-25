@@ -337,6 +337,46 @@ test("chooseSessionPath fails clearly in non-interactive mode", async () => {
   );
 });
 
+test("chooseSessionPath keeps full session titles in non-interactive errors", async () => {
+  const longTitle = [
+    "需要完整显示的超长 session 标题",
+    "用于区分两个非常相似",
+    "但关键结尾不同的候选记录",
+    "并且不能被截断",
+    "A",
+  ].join(" ");
+
+  await assert.rejects(
+    chooseSessionPath(
+      "Codex",
+      [
+        {
+          sessionPath: "/tmp/a.jsonl",
+          sessionId: "aaa",
+          updatedAt: "2026-03-21T10:00:00.000Z",
+          title: longTitle,
+        },
+        {
+          sessionPath: "/tmp/b.jsonl",
+          sessionId: "bbb",
+          updatedAt: "2026-03-21T11:00:00.000Z",
+          title: `${longTitle} B`,
+        },
+      ],
+      { isInteractive: false },
+    ),
+    (error) => {
+      assert.match(error.message, new RegExp(longTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+      assert.match(
+        error.message,
+        /需要完整显示的超长 session 标题 用于区分两个非常相似 但关键结尾不同的候选记录 并且不能被截断 A B/u,
+      );
+      assert.doesNotMatch(error.message, /\.\.\./);
+      return true;
+    },
+  );
+});
+
 test("chooseSessionPath returns interactive selection", async () => {
   const writes = [];
   const selected = await chooseSessionPath(

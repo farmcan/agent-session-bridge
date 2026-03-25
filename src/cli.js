@@ -176,14 +176,14 @@ function emitResult(payload, asJson) {
   }
 }
 
-function formatSessionTitle(title, maxLength = 48) {
+function formatSessionTitle(title, maxLength = Number.POSITIVE_INFINITY) {
   const normalized = String(title ?? "")
     .replace(/\s+/gu, " ")
     .trim();
   if (!normalized) {
     return "(untitled)";
   }
-  if (normalized.length <= maxLength) {
+  if (!Number.isFinite(maxLength) || normalized.length <= maxLength) {
     return normalized;
   }
   return `${normalized.slice(0, maxLength - 3)}...`;
