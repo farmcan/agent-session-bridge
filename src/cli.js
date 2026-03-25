@@ -198,20 +198,34 @@ function isIgnorableSessionTitleMessage(text) {
   return normalized.startsWith("<environment_context>") || normalized.startsWith("<turn_aborted>");
 }
 
+function getRealUserMessages(session) {
+  return session.messages.filter(
+    (message) => message.role === "user" && message.text.trim() && !isIgnorableSessionTitleMessage(message.text),
+  );
+}
+
 function getSessionTitle(session) {
   if (session.title) {
     return formatSessionTitle(session.title);
   }
-  const firstUserMessage = session.messages.find(
-    (message) => message.role === "user" && message.text.trim() && !isIgnorableSessionTitleMessage(message.text),
-  );
+  const firstUserMessage = getRealUserMessages(session)[0];
   return formatSessionTitle(firstUserMessage?.text);
 }
 
 function formatSessionCandidate(candidate, index) {
   const title = formatSessionTitle(candidate.title);
   const updatedAt = candidate.updatedAt ?? "unknown time";
-  return `${index + 1}. ${title}\n   ${updatedAt}  ${candidate.sessionId}\n   ${candidate.sessionPath}`;
+  const recentMessages = Array.isArray(candidate.recentUserMessages) ? candidate.recentUserMessages : [];
+  const recentSection =
+    recentMessages.length > 0
+      ? `\n    Recent user messages:\n${recentMessages.map((message) => `    - ${message}`).join("\n")}`
+      : "";
+  return [
+    `[${index + 1}] ${title}`,
+    `    Updated: ${updatedAt}`,
+    `    Session: ${candidate.sessionId}`,
+    `    Path: ${candidate.sessionPath}${recentSection}`,
+  ].join("\n");
 }
 
 export async function chooseSessionPath(
@@ -232,14 +246,14 @@ export async function chooseSessionPath(
   }
 
   if (!isInteractive) {
-    const options = candidates.map(formatSessionCandidate).join("\n");
+    const options = candidates.map(formatSessionCandidate).join("\n\n");
     throw new Error(
       `Multiple ${agentLabel} sessions match the current directory.\n${options}\nUse --session-id to choose one explicitly.`,
     );
   }
 
   output.write(`Multiple ${agentLabel} sessions match the current directory:\n`);
-  output.write(`${candidates.map(formatSessionCandidate).join("\n")}\n`);
+  output.write(`\n${candidates.map(formatSessionCandidate).join("\n\n")}\n`);
 
   const ask = prompt ?? (async () => {
     output.write(`Select a session [1-${candidates.length}]: `);
@@ -301,6 +315,10 @@ async function resolveSessionPath(args) {
             sessionId: session.sessionId,
             updatedAt: session.updatedAt,
             title: getSessionTitle(session),
+            recentUserMessages: getRealUserMessages(session)
+              .slice(-3)
+              .reverse()
+              .map((message) => formatSessionTitle(message.text)),
           };
         }),
     );

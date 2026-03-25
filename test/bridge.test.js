@@ -377,6 +377,38 @@ test("chooseSessionPath keeps full session titles in non-interactive errors", as
   );
 });
 
+test("chooseSessionPath renders candidates as spaced cards with recent user messages", async () => {
+  await assert.rejects(
+    chooseSessionPath(
+      "Codex",
+      [
+        {
+          sessionPath: "/tmp/a.jsonl",
+          sessionId: "aaa",
+          updatedAt: "2026-03-21T10:00:00.000Z",
+          title: "做一下 Claude export",
+          recentUserMessages: ["做一下 Claude export", "顺手检查 qoder export", "这个报错要不要一起修"],
+        },
+        {
+          sessionPath: "/tmp/b.jsonl",
+          sessionId: "bbb",
+          updatedAt: "2026-03-21T11:00:00.000Z",
+          title: "总结一下你的上下文",
+          recentUserMessages: ["总结一下你的上下文", "先不要改代码"],
+        },
+      ],
+      { isInteractive: false },
+    ),
+    (error) => {
+      assert.match(error.message, /\[1\] 做一下 Claude export/);
+      assert.match(error.message, /Recent user messages:\n    - 做一下 Claude export\n    - 顺手检查 qoder export\n    - 这个报错要不要一起修/);
+      assert.match(error.message, /\n\n\[2\] 总结一下你的上下文/);
+      assert.match(error.message, /Path: \/tmp\/a\.jsonl/);
+      return true;
+    },
+  );
+});
+
 test("chooseSessionPath returns interactive selection", async () => {
   const writes = [];
   const selected = await chooseSessionPath(
@@ -622,6 +654,45 @@ test("cli shows the first real user prompt instead of Codex environment context 
   assert.equal(result.code, 1);
   assert.match(result.stderr, /总结一下你的上下文/);
   assert.match(result.stderr, /做一下 Claude export/);
+  assert.doesNotMatch(result.stderr, /<environment_context>/);
+  assert.doesNotMatch(result.stderr, /<turn_aborted>/);
+});
+
+test("cli shows recent real user messages in session choices", async () => {
+  const currentDir = await makeTempDir("codex-cli-recent-workspace");
+  const sessionsRoot = await makeTempDir("codex-cli-recent-sessions");
+  const targetDir = path.join(sessionsRoot, "2026", "03", "22");
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-22T10-00-00-aaa.jsonl"),
+    [
+      `{"timestamp":"2026-03-22T10:00:00.000Z","type":"session_meta","payload":{"id":"aaa","cwd":"${currentDir}"}}`,
+      '{"timestamp":"2026-03-22T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\\n  <cwd>/tmp/demo</cwd>\\n</environment_context>"}]}}',
+      '{"timestamp":"2026-03-22T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"先看一下 issue"}]}}',
+      '{"timestamp":"2026-03-22T10:00:03.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"好的"}]}}',
+      '{"timestamp":"2026-03-22T10:00:04.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"总结一下你的上下文"}]}}',
+      '{"timestamp":"2026-03-22T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"最后再看一下测试"}]}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(targetDir, "rollout-2026-03-22T11-00-00-bbb.jsonl"),
+    [
+      `{"timestamp":"2026-03-22T11:00:00.000Z","type":"session_meta","payload":{"id":"bbb","cwd":"${currentDir}"}}`,
+      '{"timestamp":"2026-03-22T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"做一下 Claude export"}]}}',
+      '{"timestamp":"2026-03-22T11:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<turn_aborted>"}]}}',
+      '{"timestamp":"2026-03-22T11:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"顺手检查 qoder export"}]}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const result = await spawnCli(["codex", "claude", "--root", sessionsRoot], { cwd: currentDir });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Recent user messages:/);
+  assert.match(result.stderr, /- 最后再看一下测试/);
+  assert.match(result.stderr, /- 总结一下你的上下文/);
+  assert.match(result.stderr, /- 先看一下 issue/);
+  assert.match(result.stderr, /- 顺手检查 qoder export/);
   assert.doesNotMatch(result.stderr, /<environment_context>/);
   assert.doesNotMatch(result.stderr, /<turn_aborted>/);
 });

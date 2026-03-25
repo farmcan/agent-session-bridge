@@ -68,6 +68,8 @@ Then use:
 kage c2x
 ```
 
+To upgrade a previous install from this script, run the same install command again.
+
 For local development:
 
 ```bash
@@ -220,6 +222,7 @@ If multiple matching sessions exist for the current directory:
 - interactive terminals get a numbered chooser
 - chooser titles prefer the first real user prompt instead of bootstrap metadata like Codex environment context
 - chooser titles and paths stay untruncated so similar sessions remain distinguishable
+- chooser entries include the most recent real user messages so you can tell similar sessions apart
 - non-interactive runs fail clearly and ask for `--session-id`
 - malformed JSONL rows are ignored during session discovery so one corrupted transcript does not block the whole scan
 
