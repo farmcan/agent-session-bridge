@@ -66,6 +66,7 @@ test("detectAgent recognizes Codex, Claude, Qoder, and QoderCLI alias paths", ()
 test("inferDefaultExportFormat prefers native exports for supported aliases", () => {
   assert.equal(inferDefaultExportFormat({ routeAlias: "x2c", exportFormat: null }).exportFormat, "claude-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "c2x", exportFormat: null }).exportFormat, "codex-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "c2c", exportFormat: null }).exportFormat, "claude-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "x2x", exportFormat: null }).exportFormat, "codex-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "q2x", exportFormat: null }).exportFormat, "codex-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "q2c", exportFormat: null }).exportFormat, "claude-session");
@@ -74,6 +75,7 @@ test("inferDefaultExportFormat prefers native exports for supported aliases", ()
 });
 
 test("getExportCapability exposes qoder export pairs", () => {
+  assert.equal(getExportCapability("claude", "claude")?.format, "claude-session");
   assert.equal(getExportCapability("qodercli", "codex")?.format, "codex-session");
   assert.equal(getExportCapability("qodercli", "claude")?.format, "claude-session");
   assert.equal(getExportCapability("codex", "qodercli")?.format, "qoder-session");
@@ -470,7 +472,7 @@ test("cli reports supported aliases for unknown route aliases", async () => {
   const result = await spawnCli(["q2q"]);
   assert.equal(result.code, 1);
   assert.match(result.stderr, /Unknown route alias: q2q/);
-  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2x, c2q, q2x, q2c/);
+  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2c, c2x, c2q, q2x, q2c/);
 });
 
 test("cli supports shorthand positional source and target agents", async () => {
@@ -505,6 +507,21 @@ test("cli supports c2x as a Codex session export", async () => {
   assert.equal(result.code, 0);
   assert.equal(payload.mode, "codex-session");
   assert.equal(payload.resumeCommand, "codex resume claude-session");
+});
+
+test("cli supports c2c as a Claude fork export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const fakeHome = await makeTempDir("c2c-home");
+  const result = await spawnCli(["c2c", "--session", sessionPath, "--json"], {
+    env: { ...process.env, HOME: fakeHome },
+  });
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(payload.mode, "claude-session");
+  assert.match(payload.sessionId, /^[0-9a-f-]{36}$/);
+  assert.notEqual(payload.sessionId, "claude-session");
+  assert.equal(payload.resumeCommand, `claude --resume ${payload.sessionId}`);
 });
 
 test("cli supports x2x as a Codex fork export", async () => {

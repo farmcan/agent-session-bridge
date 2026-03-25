@@ -29,11 +29,17 @@ export async function exportSession({
   const session = applySessionTransforms(parsedSession, { splitRecent, forkPrompt });
   const normalizedSource = formatAgentName(sourceAgent ?? parsedSession.agent);
   const normalizedTarget = formatAgentName(targetAgent);
+  const shouldGenerateForkSessionId =
+    format === "codex-session" &&
+    normalizeAgent(sourceAgent ?? parsedSession.agent) === "codex" &&
+    normalizeAgent(targetAgent) === "codex";
+  const shouldGenerateClaudeForkSessionId =
+    format === "claude-session" &&
+    normalizeAgent(sourceAgent ?? parsedSession.agent) === "claude" &&
+    normalizeAgent(targetAgent) === "claude";
   const exportedSessionId =
     sessionId ??
-    (normalizeAgent(sourceAgent ?? parsedSession.agent) === "codex" &&
-    normalizeAgent(targetAgent) === "codex" &&
-    format === "codex-session"
+    (shouldGenerateForkSessionId || shouldGenerateClaudeForkSessionId
       ? randomUUID()
       : undefined);
   const exported = renderExport(format, {

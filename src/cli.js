@@ -25,6 +25,7 @@ Route aliases:
   x2x   codex -> codex
   x2c   codex -> claude
   x2q   codex -> qoder
+  c2c   claude -> claude
   c2x   claude -> codex
   c2q   claude -> qoder
   q2x   qoder -> codex

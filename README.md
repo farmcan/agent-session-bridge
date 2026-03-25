@@ -37,6 +37,12 @@ Fork the current Codex session into a new Codex session:
 agent-session-bridge x2x
 ```
 
+Fork the current Claude session into a new Claude session:
+
+```bash
+agent-session-bridge c2c
+```
+
 Fork or trim before exporting:
 
 ```bash
@@ -50,6 +56,7 @@ agent-session-bridge claude qoder --fork "另外开一个分支，去做 session
 |---|---|---|---|
 | `codex` | `claude` | `claude-session` | `claude --resume ...` |
 | `claude` | `codex` | `codex-session` | `codex resume ...` |
+| `claude` | `claude` | `claude-session` fork | `claude --resume ...` |
 | `codex` | `codex` | `codex-session` fork | `codex resume ...` |
 | `qoder` / `qodercli` | `codex` | `codex-session` | `codex resume ...` |
 | `qoder` / `qodercli` | `claude` | `claude-session` | `claude --resume ...` |
@@ -81,6 +88,7 @@ npm link
 
 ```bash
 kage c2x
+kage c2c
 kage x2c
 kage x2x
 kage q2x
@@ -140,6 +148,7 @@ If the export worked, Codex opens in the same project directory and continues fr
 | `x2x` | `codex -> codex` | `codex-session` |
 | `x2c` | `codex -> claude` | `claude-session` |
 | `x2q` | `codex -> qoder` | `qoder-session` |
+| `c2c` | `claude -> claude` | `claude-session` |
 | `c2x` | `claude -> codex` | `codex-session` |
 | `c2q` | `claude -> qoder` | `qoder-session` |
 | `q2x` | `qoder -> codex` | `codex-session` |

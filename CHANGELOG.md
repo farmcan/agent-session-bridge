@@ -5,6 +5,9 @@
 - Improved the ambiguous session chooser with spaced card-style entries, full paths, session ids, and recent real user messages.
 - 改进了歧义 session 选择器，使用留白更清晰的卡片式条目，并展示完整路径、session id 和最近几条真实用户消息。
 
+- Added `c2c` so Claude sessions can be forked into new native Claude sessions and resumed with a fresh session id.
+- 增加了 `c2c`，支持把 Claude session fork 成新的原生 Claude session，并使用新的 session id 继续恢复。
+
 - Tolerate corrupted JSONL rows during session discovery so one bad transcript does not break the whole scan.
 - 在 session 发现阶段容忍损坏的 JSONL 行，避免单个坏文件导致整个扫描流程失败。
 

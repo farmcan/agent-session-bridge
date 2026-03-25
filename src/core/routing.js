@@ -4,6 +4,7 @@ export const routeAliases = {
   x2x: { agent: "x", target: "x" },
   x2c: { agent: "x", target: "c" },
   x2q: { agent: "x", target: "q" },
+  c2c: { agent: "c", target: "c" },
   c2x: { agent: "c", target: "x" },
   c2q: { agent: "c", target: "q" },
   q2x: { agent: "q", target: "x" },
@@ -12,6 +13,7 @@ export const routeAliases = {
 
 const exportCapabilities = new Map(
   [
+    ["claude:claude", { format: "claude-session", resumable: true, fork: true }],
     ["claude:codex", { format: "codex-session", resumable: true }],
     ["codex:claude", { format: "claude-session", resumable: true }],
     ["codex:codex", { format: "codex-session", resumable: true, fork: true }],
@@ -27,6 +29,7 @@ const exportCapabilities = new Map(
 );
 
 const defaultAliasExportFormats = {
+  c2c: "claude-session",
   x2c: "claude-session",
   c2x: "codex-session",
   x2x: "codex-session",
