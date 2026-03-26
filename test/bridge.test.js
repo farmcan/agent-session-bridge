@@ -68,6 +68,7 @@ test("inferDefaultExportFormat prefers native exports for supported aliases", ()
   assert.equal(inferDefaultExportFormat({ routeAlias: "c2x", exportFormat: null }).exportFormat, "codex-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "c2c", exportFormat: null }).exportFormat, "claude-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "x2x", exportFormat: null }).exportFormat, "codex-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "q2q", exportFormat: null }).exportFormat, "qoder-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "q2x", exportFormat: null }).exportFormat, "codex-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "q2c", exportFormat: null }).exportFormat, "claude-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "x2q", exportFormat: null }).exportFormat, "qoder-session");
@@ -76,6 +77,7 @@ test("inferDefaultExportFormat prefers native exports for supported aliases", ()
 
 test("getExportCapability exposes qoder export pairs", () => {
   assert.equal(getExportCapability("claude", "claude")?.format, "claude-session");
+  assert.equal(getExportCapability("qoder", "qoder")?.format, "qoder-session");
   assert.equal(getExportCapability("qodercli", "codex")?.format, "codex-session");
   assert.equal(getExportCapability("qodercli", "claude")?.format, "claude-session");
   assert.equal(getExportCapability("codex", "qodercli")?.format, "qoder-session");
@@ -493,10 +495,10 @@ test("cli fails clearly for removed handoff flags and cursor aliases", async () 
 });
 
 test("cli reports supported aliases for unknown route aliases", async () => {
-  const result = await spawnCli(["q2q"]);
+  const result = await spawnCli(["z2z"]);
   assert.equal(result.code, 1);
-  assert.match(result.stderr, /Unknown route alias: q2q/);
-  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2c, c2x, c2q, q2x, q2c/);
+  assert.match(result.stderr, /Unknown route alias: z2z/);
+  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2c, c2x, c2q, q2q, q2x, q2c/);
   assert.match(result.stderr, /Run: kage update/);
 });
 
@@ -646,6 +648,18 @@ test("cli supports q2x and q2c", async () => {
 
   assert.equal(JSON.parse(q2x.stdout).mode, "codex-session");
   assert.equal(JSON.parse(q2c.stdout).mode, "claude-session");
+});
+
+test("cli supports q2q as a qoder fork export", async () => {
+  const sessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+  const result = await spawnCli(["q2q", "--session", sessionPath, "--json"]);
+
+  const payload = JSON.parse(result.stdout);
+  assert.equal(result.code, 0);
+  assert.equal(payload.mode, "qoder-session");
+  assert.match(payload.sessionId, /^[0-9a-f-]{36}$/);
+  assert.notEqual(payload.sessionId, "qoder-session");
+  assert.equal(payload.resumeCommand, undefined);
 });
 
 test("cli supports x2q and c2q", async () => {

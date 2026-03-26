@@ -37,9 +37,13 @@ export async function exportSession({
     format === "claude-session" &&
     normalizeAgent(sourceAgent ?? parsedSession.agent) === "claude" &&
     normalizeAgent(targetAgent) === "claude";
+  const shouldGenerateQoderForkSessionId =
+    format === "qoder-session" &&
+    normalizeAgent(sourceAgent ?? parsedSession.agent) === "qoder" &&
+    normalizeAgent(targetAgent) === "qoder";
   const exportedSessionId =
     sessionId ??
-    (shouldGenerateForkSessionId || shouldGenerateClaudeForkSessionId
+    (shouldGenerateForkSessionId || shouldGenerateClaudeForkSessionId || shouldGenerateQoderForkSessionId
       ? randomUUID()
       : undefined);
   const exported = renderExport(format, {

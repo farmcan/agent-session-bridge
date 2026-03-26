@@ -60,6 +60,7 @@ agent-session-bridge claude qoder --fork "另外开一个分支，去做 session
 | `codex` | `codex` | `codex-session` fork | `codex resume ...` |
 | `qoder` / `qodercli` | `codex` | `codex-session` | `codex resume ...` |
 | `qoder` / `qodercli` | `claude` | `claude-session` | `claude --resume ...` |
+| `qoder` / `qodercli` | `qoder` / `qodercli` | `qoder-session` fork | not yet |
 | `codex` | `qoder` / `qodercli` | `qoder-session` | not yet |
 | `claude` | `qoder` / `qodercli` | `qoder-session` | not yet |
 
@@ -95,6 +96,7 @@ kage x2x
 kage c
 kage q
 kage x
+kage q2q
 kage q2x
 kage q2c
 kage x2q
@@ -155,6 +157,7 @@ If the export worked, Codex opens in the same project directory and continues fr
 | `c2c` | `claude -> claude` | `claude-session` |
 | `c2x` | `claude -> codex` | `codex-session` |
 | `c2q` | `claude -> qoder` | `qoder-session` |
+| `q2q` | `qoder -> qoder` | `qoder-session` |
 | `q2x` | `qoder -> codex` | `codex-session` |
 | `q2c` | `qoder -> claude` | `claude-session` |
 
