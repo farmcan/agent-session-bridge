@@ -23,6 +23,9 @@ curl -fsSL https://raw.githubusercontent.com/farmcan/agent-session-bridge/main/i
 kage c2x  # Claude -> Codex，同工作目录下把 Claude 上下文接力到 Codex，支持按照 session 选择
 kage x2c  # Codex -> Claude，同工作目录下把 Codex 上下文接力到 Claude
 kage x2x  # Codex -> Codex，把当前 Codex session fork 成一个新分支
+kage c2c  # Claude -> Claude，把当前 Claude session fork 成一个新分支
+kage c    # 只列出当前目录下匹配的 Claude sessions
+kage update  # 更新到最新版本
 ```
 
 这里的缩写是：
@@ -50,15 +53,29 @@ codex resume <session-id>
 ```text
 ➜  agentkit git:(fix/tool-history-early-errors) ✗ kage c2x
 Multiple Claude sessions match the current directory:
-1. a=100,b=200,a+b=?
-   2026-03-22T14:49:54.695Z  b3b958d7-4ac8-41c4-8660-7b7f654737c6
-   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
-2. a=1,b=2,a+b=?
-   2026-03-22T14:49:13.552Z  a3ac68c7-76f4-44ef-a619-f04f19b49c83
-   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/a3ac68c7-76f4-44ef-a619-f04f19b49c83.jsonl
-3. 查看并了解当前代码
-   2026-03-20T13:26:27.783Z  33d6decd-7776-4fba-b1d6-50b904c07010
-   /Users/you/.claude/projects/-Users-you-wrksp-agentkit/33d6decd-7776-4fba-b1d6-50b904c07010.jsonl
+[1] a=100,b=200,a+b=?
+    Updated: 2026-03-22T14:49:54.695Z
+    Session: b3b958d7-4ac8-41c4-8660-7b7f654737c6
+    Path: /Users/you/.claude/projects/-Users-you-wrksp-agentkit/b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
+    Recent user messages:
+    - a=100,b=200,a+b=?
+
+
+[2] a=1,b=2,a+b=?
+    Updated: 2026-03-22T14:49:13.552Z
+    Session: a3ac68c7-76f4-44ef-a619-f04f19b49c83
+    Path: /Users/you/.claude/projects/-Users-you-wrksp-agentkit/a3ac68c7-76f4-44ef-a619-f04f19b49c83.jsonl
+    Recent user messages:
+    - a=1,b=2,a+b=?
+
+
+[3] 查看并了解当前代码
+    Updated: 2026-03-20T13:26:27.783Z
+    Session: 33d6decd-7776-4fba-b1d6-50b904c07010
+    Path: /Users/you/.claude/projects/-Users-you-wrksp-agentkit/33d6decd-7776-4fba-b1d6-50b904c07010.jsonl
+    Recent user messages:
+    - 查看并了解当前代码
+
 Select a session [1-3]: 1
 /Users/you/.codex/sessions/2026/03/22/rollout-2026-03-22T14-49-54-695Z-b3b958d7-4ac8-41c4-8660-7b7f654737c6.jsonl
 Run:
@@ -70,7 +87,7 @@ codex resume b3b958d7-4ac8-41c4-8660-7b7f654737c6
 
 如果这一步能直接在 Codex 里继续同一个问题，说明这条 `Claude -> Codex` 的接力链路是通的。
 
-注：qodercli 目前没有显示支持 resume，所以 -> qoder 暂时不通，但是运行 kage c2q 会产生 qodercli 可识别的 context.jsonl 文件和 meta.json 文件，可以直接将文件丢给 qodercli 让它自己分析。—— 已经在社区提了 request，相信 qodercli 会跟进的。
+注：qodercli 目前没有显示支持 resume，所以 -> qoder 暂时不通。但是运行 `kage c2q` 仍然会生成 qoder 可识别的一对原生文件：`<session-id>.jsonl` 和 `<session-id>-session.json`，可以直接交给 qodercli 继续分析。—— 已经在社区提了 request，相信 qodercli 会跟进的。
 
 ---
 
