@@ -24,9 +24,33 @@ function roomMarkup(room) {
   </div>`;
 }
 
+function wingMarkup(wing) {
+  return `<div class="wing wing-${wing.kind}" style="left:${wing.left}%; top:${wing.top}%; width:${wing.width}%; height:${wing.height}%;">
+    <div class="wing-label">${wing.title}</div>
+  </div>`;
+}
+
 function renderStoryHtml(payload) {
   const serialized = escapeForScript(payload);
   const toolRooms = Array.isArray(payload.toolRooms) ? payload.toolRooms : [];
+  const toolWingLayouts = {
+    filesystem: { title: "Filesystem Wing", left: 61, top: 8, width: 24, height: 25, slots: [{ left: 69, top: 18 }, { left: 81, top: 18 }] },
+    terminal: { title: "Terminal Wing", left: 61, top: 38, width: 24, height: 25, slots: [{ left: 69, top: 48 }, { left: 81, top: 48 }] },
+    search: { title: "Search Wing", left: 61, top: 68, width: 24, height: 20, slots: [{ left: 69, top: 76 }, { left: 81, top: 76 }] },
+    git: { title: "Git / GitHub Wing", left: 36, top: 8, width: 20, height: 18, slots: [{ left: 42, top: 16 }, { left: 51, top: 16 }] },
+    tools: { title: "General Tools Wing", left: 36, top: 70, width: 20, height: 18, slots: [{ left: 42, top: 78 }, { left: 51, top: 78 }] },
+  };
+  const groupedToolRooms = toolRooms.reduce((map, room) => {
+    const key = room.category?.key ?? "tools";
+    map.set(key, [...(map.get(key) ?? []), room]);
+    return map;
+  }, new Map());
+  const toolWings = [...groupedToolRooms.entries()].map(([key, rooms]) => ({
+    key,
+    title: rooms[0]?.category?.title ?? toolWingLayouts[key]?.title ?? "General Tools Wing",
+    layout: toolWingLayouts[key] ?? toolWingLayouts.tools,
+    rooms,
+  }));
   const rooms = [
     {
       id: "human-hall",
@@ -48,16 +72,33 @@ function renderStoryHtml(payload) {
       left: 39,
       top: 22,
     },
-    ...toolRooms.map((room, index) => ({
-      id: room.id,
-      kind: "tool",
-      eyebrow: "Tool",
-      title: `${room.title} Room`,
-      copy: `${room.title} 的独立执行房间。`,
-      icon: "tool",
-      left: 66 + (index % 2) * 16,
-      top: 16 + Math.floor(index / 2) * 32,
-      toolName: room.toolName,
+    ...toolWings.flatMap(({ title, layout, rooms }) =>
+      rooms.map((room, index) => {
+        const slot = layout.slots[index % layout.slots.length];
+        return {
+          id: room.id,
+          kind: "tool",
+          eyebrow: title,
+          title: `${room.title} Room`,
+          copy: `${room.title} 在 ${title} 里独立执行。`,
+          icon: "tool",
+          left: slot.left,
+          top: slot.top + Math.floor(index / layout.slots.length) * 10,
+          toolName: room.toolName,
+        };
+      }),
+    ),
+  ];
+  const wings = [
+    { kind: "human", title: "Human Wing", left: 3, top: 40, width: 22, height: 32 },
+    { kind: "llm", title: "Reasoning Wing", left: 28, top: 4, width: 28, height: 28 },
+    ...toolWings.map(({ key, title, layout }) => ({
+      kind: key,
+      title,
+      left: layout.left,
+      top: layout.top,
+      width: layout.width,
+      height: layout.height,
     })),
   ];
 
@@ -92,7 +133,7 @@ function renderStoryHtml(payload) {
       font-family: "Courier New", Consolas, monospace;
     }
     body { padding: 20px; }
-    .shell { max-width: 1380px; margin: 0 auto; display: grid; gap: 16px; }
+    .shell { max-width: min(1800px, 98vw); margin: 0 auto; display: grid; gap: 16px; }
     .header, .panel {
       background: var(--panel);
       border: 3px solid var(--line);
@@ -109,13 +150,14 @@ function renderStoryHtml(payload) {
     .meta { font-size: 13px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
     .layout {
       display: grid;
-      grid-template-columns: minmax(360px, 1.55fr) minmax(300px, 0.95fr);
+      grid-template-columns: minmax(780px, 1.9fr) minmax(260px, 0.62fr);
       gap: 16px;
     }
-    .stage-panel { padding: 12px; }
+    .stage-panel { padding: 10px; }
     .stage {
       position: relative;
-      height: 660px;
+      height: min(90vh, 1080px);
+      min-height: 820px;
       overflow: hidden;
       border: 3px solid var(--line);
       background:
@@ -135,7 +177,7 @@ function renderStoryHtml(payload) {
     }
     .map-floor {
       position: absolute;
-      inset: 8% 4% 12%;
+      inset: 6% 3% 10%;
       transform: rotateX(62deg);
       transform-origin: center center;
       border: 3px solid rgba(45,42,36,0.3);
@@ -147,20 +189,40 @@ function renderStoryHtml(payload) {
     }
     .corridor {
       position: absolute;
-      height: 24px;
+      height: 34px;
       border: 3px solid rgba(45,42,36,0.38);
       background: linear-gradient(90deg, #bea57d, #d1bb92);
       box-shadow: 0 8px 0 rgba(35,31,25,0.08);
       z-index: 1;
     }
-    .corridor-main { left: 18%; top: 63%; width: 63%; }
-    .corridor-spine { left: 48%; top: 32%; width: 16%; transform: rotate(90deg); }
-    .corridor-tool-a { left: 63%; top: 30%; width: 18%; }
-    .corridor-tool-b { left: 63%; top: 46%; width: 18%; }
+    .corridor-main { left: 16%; top: 66%; width: 68%; }
+    .corridor-spine { left: 47%; top: 33%; width: 18%; transform: rotate(90deg); }
+    .corridor-tool-a { left: 62%; top: 29%; width: 21%; }
+    .corridor-tool-b { left: 62%; top: 48%; width: 21%; }
+    .wing {
+      position: absolute;
+      border: 3px dashed rgba(45,42,36,0.28);
+      background: rgba(255,255,255,0.08);
+      border-radius: 24px;
+      z-index: 1;
+      box-shadow: inset 0 0 0 8px rgba(255,255,255,0.04);
+    }
+    .wing-label {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      padding: 6px 10px;
+      border: 2px solid var(--line);
+      background: rgba(255,251,242,0.9);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .room {
       position: absolute;
-      width: 188px;
-      height: 150px;
+      width: 280px;
+      height: 220px;
       transform: translate(-50%, -50%);
       z-index: 2;
     }
@@ -171,7 +233,7 @@ function renderStoryHtml(payload) {
       border: 3px solid var(--line);
       background: rgba(255,251,241,0.94);
       box-shadow: var(--shadow);
-      padding: 12px;
+      padding: 18px;
     }
     .room-face::before, .room-face::after {
       content: "";
@@ -179,20 +241,20 @@ function renderStoryHtml(payload) {
       background: rgba(35,31,25,0.12);
     }
     .room-face::before {
-      left: 10px;
-      right: -14px;
-      bottom: -14px;
-      height: 14px;
+      left: 12px;
+      right: -18px;
+      bottom: -18px;
+      height: 18px;
       border: 3px solid var(--line);
       border-top: none;
       transform: skewX(-45deg);
       transform-origin: left top;
     }
     .room-face::after {
-      top: 10px;
-      right: -14px;
-      bottom: -14px;
-      width: 14px;
+      top: 12px;
+      right: -18px;
+      bottom: -18px;
+      width: 18px;
       border: 3px solid var(--line);
       border-left: none;
       transform: skewY(-45deg);
@@ -201,25 +263,25 @@ function renderStoryHtml(payload) {
     .room-human .room-face { background: rgba(255, 238, 226, 0.96); }
     .room-llm .room-face { background: rgba(232, 238, 252, 0.96); }
     .room-tool .room-face { background: rgba(248, 240, 212, 0.96); }
-    .room-eyebrow { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-    .room-title { margin-top: 6px; font-size: 18px; font-weight: 700; }
-    .room-copy { margin-top: 8px; font-size: 12px; line-height: 1.42; max-width: 112px; }
+    .room-eyebrow { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .room-title { margin-top: 8px; font-size: 26px; font-weight: 700; }
+    .room-copy { margin-top: 12px; font-size: 15px; line-height: 1.48; max-width: 165px; }
     .room-door {
       position: absolute;
-      left: calc(50% - 16px);
+      left: calc(50% - 22px);
       bottom: 0;
-      width: 32px;
-      height: 42px;
+      width: 44px;
+      height: 64px;
       background: rgba(35,31,25,0.14);
       border: 3px solid var(--line);
       border-bottom: none;
     }
     .room-icon {
       position: absolute;
-      right: 16px;
-      top: 22px;
-      width: 44px;
-      height: 44px;
+      right: 20px;
+      top: 28px;
+      width: 64px;
+      height: 64px;
       border: 3px solid var(--line);
       background: #fff9e8;
     }
@@ -230,12 +292,12 @@ function renderStoryHtml(payload) {
       position: absolute;
       background: var(--line);
     }
-    .room-icon-human::before { left: 16px; top: 6px; width: 8px; height: 30px; }
-    .room-icon-human::after { left: 6px; top: 16px; width: 30px; height: 8px; }
-    .room-icon-llm::before { inset: 8px; border: 3px solid var(--line); background: transparent; }
-    .room-icon-llm::after { left: 16px; top: 16px; width: 8px; height: 8px; box-shadow: -10px 0 0 var(--llm), 10px 0 0 var(--llm), 0 10px 0 var(--llm); background: var(--llm); }
-    .room-icon-tool::before { left: 8px; top: 18px; width: 28px; height: 8px; }
-    .room-icon-tool::after { left: 18px; top: 8px; width: 8px; height: 28px; }
+    .room-icon-human::before { left: 24px; top: 8px; width: 10px; height: 44px; }
+    .room-icon-human::after { left: 8px; top: 24px; width: 44px; height: 10px; }
+    .room-icon-llm::before { inset: 10px; border: 3px solid var(--line); background: transparent; }
+    .room-icon-llm::after { left: 24px; top: 24px; width: 10px; height: 10px; box-shadow: -14px 0 0 var(--llm), 14px 0 0 var(--llm), 0 14px 0 var(--llm); background: var(--llm); }
+    .room-icon-tool::before { left: 10px; top: 28px; width: 42px; height: 10px; }
+    .room-icon-tool::after { left: 26px; top: 10px; width: 10px; height: 42px; }
     .room.active { z-index: 4; }
     .runner-layer {
       position: absolute;
@@ -247,93 +309,93 @@ function renderStoryHtml(payload) {
       position: absolute;
       left: 80px;
       top: 72%;
-      width: 82px;
-      height: 126px;
+      width: 110px;
+      height: 170px;
       transform-origin: 50% 100%;
       filter: drop-shadow(6px 9px 0 rgba(35,31,25,0.18));
     }
     .runner-shadow {
       position: absolute;
-      left: 18px;
+      left: 24px;
       bottom: 2px;
-      width: 46px;
-      height: 10px;
+      width: 62px;
+      height: 14px;
       border-radius: 999px;
       background: rgba(35,31,25,0.18);
     }
     .runner-head {
       position: absolute;
-      left: 22px;
-      top: 10px;
-      width: 34px;
-      height: 34px;
+      left: 28px;
+      top: 12px;
+      width: 46px;
+      height: 46px;
       background: #faedcd;
       border: 3px solid var(--line);
     }
     .runner-body {
       position: absolute;
-      left: 18px;
-      top: 42px;
-      width: 42px;
-      height: 40px;
+      left: 22px;
+      top: 58px;
+      width: 54px;
+      height: 54px;
       border: 3px solid var(--line);
       background: var(--agent);
       box-shadow:
-        -14px 6px 0 -2px var(--agent),
-        14px 6px 0 -2px var(--agent);
+        -18px 8px 0 -2px var(--agent),
+        18px 8px 0 -2px var(--agent);
     }
     .runner-eye {
       position: absolute;
-      top: 20px;
-      width: 4px;
-      height: 4px;
+      top: 28px;
+      width: 5px;
+      height: 5px;
       background: var(--line);
     }
-    .runner-eye.left { left: 32px; }
-    .runner-eye.right { left: 44px; }
+    .runner-eye.left { left: 42px; }
+    .runner-eye.right { left: 58px; }
     .runner-leg {
       position: absolute;
-      top: 80px;
-      width: 11px;
-      height: 30px;
+      top: 112px;
+      width: 14px;
+      height: 42px;
       background: #3f342b;
       transform-origin: 50% 0%;
     }
-    .runner-leg.left { left: 26px; }
-    .runner-leg.right { left: 44px; }
+    .runner-leg.left { left: 34px; }
+    .runner-leg.right { left: 56px; }
     .runner.walking .runner-leg.left { animation: leg-left 0.24s linear infinite; }
     .runner.walking .runner-leg.right { animation: leg-right 0.24s linear infinite; }
     .runner.walking .runner-body { animation: torso-bob 0.24s linear infinite; }
     .runner-badge {
       position: absolute;
-      left: 8px;
-      top: -8px;
-      padding: 4px 8px;
+      left: 10px;
+      top: -10px;
+      padding: 5px 9px;
       border: 2px solid var(--line);
       background: rgba(255,251,242,0.94);
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.08em;
     }
     .bubble {
       position: absolute;
-      width: 260px;
-      padding: 10px 12px;
+      width: 360px;
+      padding: 14px 16px;
       border: 3px solid var(--line);
       background: rgba(255,251,242,0.96);
       box-shadow: var(--shadow);
-      font-size: 13px;
-      line-height: 1.45;
+      font-size: 16px;
+      line-height: 1.55;
       opacity: 0;
       transform: translateY(8px);
     }
     .bubble::after {
       content: "";
       position: absolute;
-      left: 24px;
-      bottom: -12px;
-      width: 18px;
-      height: 18px;
+      left: 28px;
+      bottom: -14px;
+      width: 22px;
+      height: 22px;
       background: inherit;
       border-right: 3px solid var(--line);
       border-bottom: 3px solid var(--line);
@@ -341,12 +403,12 @@ function renderStoryHtml(payload) {
     }
     .route-log {
       position: absolute;
-      left: 18px;
-      top: 18px;
-      padding: 8px 10px;
+      left: 22px;
+      top: 22px;
+      padding: 10px 12px;
       border: 3px solid var(--line);
       background: rgba(255,251,242,0.92);
-      font-size: 12px;
+      font-size: 14px;
       z-index: 6;
     }
     .sidebar { display: grid; gap: 16px; align-content: start; }
@@ -394,7 +456,11 @@ function renderStoryHtml(payload) {
     @media (max-width: 980px) {
       body { padding: 14px; }
       .layout { grid-template-columns: 1fr; }
-      .stage { height: 720px; }
+      .stage { height: min(88vh, 920px); min-height: 720px; }
+      .room { width: 220px; height: 176px; }
+      .room-title { font-size: 21px; }
+      .room-copy { font-size: 13px; max-width: 130px; }
+      .bubble { width: 300px; font-size: 14px; }
     }
   </style>
 </head>
@@ -420,6 +486,7 @@ function renderStoryHtml(payload) {
         <div id="stage" class="stage">
           <div class="stage-grid"></div>
           <div class="map-floor"></div>
+          ${wings.map(wingMarkup).join("")}
           <div class="corridor corridor-main"></div>
           <div class="corridor corridor-spine"></div>
           <div class="corridor corridor-tool-a"></div>

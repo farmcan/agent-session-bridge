@@ -47,6 +47,76 @@ function normalizeToolName(name) {
   return normalized || "tool";
 }
 
+function titleizeToolName(toolName) {
+  return toolName
+    .split(/[-_]/u)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function classifyToolName(toolName) {
+  const normalized = normalizeToolName(toolName).toLowerCase();
+
+  if (
+    [
+      "read_file",
+      "write_file",
+      "edit_file",
+      "apply_patch",
+      "glob",
+      "ls",
+      "rg",
+      "grep",
+      "find_files",
+    ].includes(normalized)
+  ) {
+    return { key: "filesystem", title: "Filesystem Wing" };
+  }
+
+  if (
+    [
+      "exec_command",
+      "bash",
+      "shell",
+      "terminal",
+      "python",
+      "run_command",
+      "npm",
+      "pnpm",
+      "yarn",
+    ].includes(normalized)
+  ) {
+    return { key: "terminal", title: "Terminal Wing" };
+  }
+
+  if (
+    [
+      "search_query",
+      "open",
+      "click",
+      "find",
+      "image_query",
+      "web_search",
+      "browser",
+      "fetch_url",
+    ].includes(normalized)
+  ) {
+    return { key: "search", title: "Search Wing" };
+  }
+
+  if (
+    normalized.startsWith("git") ||
+    normalized.startsWith("gh") ||
+    normalized.includes("github") ||
+    normalized.includes("pull_request")
+  ) {
+    return { key: "git", title: "Git / GitHub Wing" };
+  }
+
+  return { key: "tools", title: "General Tools Wing" };
+}
+
 function isCodexBootstrapMessage(role, text) {
   return role === "user" && trimText(text).startsWith("# AGENTS.md instructions for ");
 }
@@ -268,11 +338,8 @@ export function buildStoryPayload(session, context = {}) {
     .map((toolName) => ({
       id: `tool-${toolName.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "") || "tool"}`,
       toolName,
-      title: toolName
-        .split(/[-_]/u)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" "),
+      title: titleizeToolName(toolName),
+      category: classifyToolName(toolName),
     }))
     .filter((room) => {
       if (seenRoomIds.has(room.id)) {
@@ -290,6 +357,16 @@ export function buildStoryPayload(session, context = {}) {
     updatedAt: session.updatedAt,
     title,
     events,
-    toolRooms: toolRooms.length > 0 ? toolRooms : [{ id: "tool-workshop", toolName: "tool", title: "Tool Workshop" }],
+    toolRooms:
+      toolRooms.length > 0
+        ? toolRooms
+        : [
+            {
+              id: "tool-workshop",
+              toolName: "tool",
+              title: "Tool Workshop",
+              category: { key: "tools", title: "General Tools Wing" },
+            },
+          ],
   };
 }

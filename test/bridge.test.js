@@ -259,6 +259,35 @@ test("exportSession renders a standalone session story html", async () => {
   assert.match(exported.files[0].content, /"type":"assistant"/);
 });
 
+test("story html groups tools into category wings", async () => {
+  const tempDir = await makeTempDir("story-wings");
+  const sessionPath = path.join(tempDir, "story-tools.jsonl");
+  await fs.writeFile(
+    sessionPath,
+    [
+      '{"timestamp":"2026-03-20T10:00:00.000Z","type":"session_meta","payload":{"id":"story-tools","cwd":"/tmp/demo"}}',
+      '{"timestamp":"2026-03-20T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inspect and run"}]}}',
+      '{"timestamp":"2026-03-20T10:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"read_file","arguments":"{\\"path\\":\\"README.md\\"}"}}',
+      '{"timestamp":"2026-03-20T10:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","name":"read_file","output":"file content"}}',
+      '{"timestamp":"2026-03-20T10:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\\"cmd\\":\\"npm test\\"}"}}',
+      '{"timestamp":"2026-03-20T10:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","name":"exec_command","output":"tests pass"}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const exported = await exportSession({
+    sessionPath,
+    sourceAgent: "codex",
+    targetAgent: "codex",
+    format: "session-story-html",
+  });
+
+  assert.match(exported.files[0].content, /Filesystem Wing/);
+  assert.match(exported.files[0].content, /Terminal Wing/);
+  assert.match(exported.files[0].content, /Read File Room/);
+  assert.match(exported.files[0].content, /Exec Command Room/);
+});
+
 test("splitSession keeps only the most recent user turn and following messages", async () => {
   const session = await parseSession({
     sessionPath: path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl"),
