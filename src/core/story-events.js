@@ -259,6 +259,29 @@ export function buildStoryEvents(session) {
 
 export function buildStoryPayload(session, context = {}) {
   const title = trimText(session.title) || trimText(session.messages?.find((message) => message.role === "user")?.text) || "Session Story";
+  const events = buildStoryEvents(session);
+  const seenRoomIds = new Set();
+  const toolRooms = events
+    .filter((event) => event.type === "tool_call" || event.type === "tool_result")
+    .map((event) => trimText(event.toolName) || "tool")
+    .filter(Boolean)
+    .map((toolName) => ({
+      id: `tool-${toolName.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "") || "tool"}`,
+      toolName,
+      title: toolName
+        .split(/[-_]/u)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" "),
+    }))
+    .filter((room) => {
+      if (seenRoomIds.has(room.id)) {
+        return false;
+      }
+      seenRoomIds.add(room.id);
+      return true;
+    });
+
   return {
     sessionId: session.sessionId,
     sourceAgent: context.sourceAgent ?? session.agent,
@@ -266,6 +289,7 @@ export function buildStoryPayload(session, context = {}) {
     cwd: session.cwd,
     updatedAt: session.updatedAt,
     title,
-    events: buildStoryEvents(session),
+    events,
+    toolRooms: toolRooms.length > 0 ? toolRooms : [{ id: "tool-workshop", toolName: "tool", title: "Tool Workshop" }],
   };
 }

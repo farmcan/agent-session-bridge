@@ -12,8 +12,54 @@ function sanitizeFileToken(value) {
     .slice(0, 64) || "session-story";
 }
 
+function roomMarkup(room) {
+  return `<div class="room room-${room.kind}" data-room-id="${room.id}" style="left:${room.left}%; top:${room.top}%;">
+    <div class="room-face">
+      <div class="room-eyebrow">${room.eyebrow}</div>
+      <div class="room-title">${room.title}</div>
+      <div class="room-copy">${room.copy}</div>
+      <div class="room-door"></div>
+      <div class="room-icon room-icon-${room.icon}"></div>
+    </div>
+  </div>`;
+}
+
 function renderStoryHtml(payload) {
   const serialized = escapeForScript(payload);
+  const toolRooms = Array.isArray(payload.toolRooms) ? payload.toolRooms : [];
+  const rooms = [
+    {
+      id: "human-hall",
+      kind: "human",
+      eyebrow: "Human",
+      title: "Briefing Hall",
+      copy: "用户在这里提问、打断、确认方向。",
+      icon: "human",
+      left: 8,
+      top: 52,
+    },
+    {
+      id: "llm-core",
+      kind: "llm",
+      eyebrow: "LLM",
+      title: "Reasoning Core",
+      copy: "Agent 在这里思考、整理方案、决定下一步。",
+      icon: "llm",
+      left: 39,
+      top: 22,
+    },
+    ...toolRooms.map((room, index) => ({
+      id: room.id,
+      kind: "tool",
+      eyebrow: "Tool",
+      title: `${room.title} Room`,
+      copy: `${room.title} 的独立执行房间。`,
+      icon: "tool",
+      left: 66 + (index % 2) * 16,
+      top: 16 + Math.floor(index / 2) * 32,
+      toolName: room.toolName,
+    })),
+  ];
 
   return `<!doctype html>
 <html lang="en">
@@ -23,260 +69,287 @@ function renderStoryHtml(payload) {
   <title>${payload.title} · Session Story</title>
   <style>
     :root {
-      --bg: #f3efe2;
-      --panel: rgba(255, 251, 241, 0.9);
-      --ink: #211f19;
-      --muted: #6d665c;
+      --bg: #efe7d3;
+      --panel: rgba(255, 251, 242, 0.92);
+      --ink: #231f19;
+      --muted: #71695d;
       --line: #2d2a24;
-      --accent-human: #dd7a4b;
-      --accent-agent: #5d7c6f;
-      --accent-tool: #c0a03d;
-      --accent-think: #7f8bb7;
-      --accent-commentary: #9a6a87;
-      --shadow: 6px 6px 0 rgba(33, 31, 25, 0.18);
+      --human: #d97a4a;
+      --llm: #6d7fa4;
+      --tool: #9a8f55;
+      --agent: #5d7c6f;
+      --path: #9d875f;
+      --shadow: 8px 8px 0 rgba(35,31,25,0.16);
     }
-
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background:
-      linear-gradient(180deg, #efe6cc 0%, #e4dcc3 100%);
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255,255,255,0.5), transparent 24%),
+        linear-gradient(180deg, #f0e7d0 0%, #e1d5bc 100%);
       color: var(--ink);
-      font-family: "Courier New", "SFMono-Regular", Consolas, monospace; }
-    body { padding: 24px; }
-    .shell { max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
+      font-family: "Courier New", Consolas, monospace;
+    }
+    body { padding: 20px; }
+    .shell { max-width: 1380px; margin: 0 auto; display: grid; gap: 16px; }
     .header, .panel {
       background: var(--panel);
       border: 3px solid var(--line);
       box-shadow: var(--shadow);
     }
     .header {
-      padding: 16px 18px;
+      padding: 14px 18px;
       display: flex;
-      gap: 16px;
-      align-items: center;
       justify-content: space-between;
+      gap: 16px;
       flex-wrap: wrap;
     }
-    .title { font-size: 20px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-    .meta { color: var(--muted); font-size: 13px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .title { font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta { font-size: 13px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
     .layout {
       display: grid;
-      grid-template-columns: minmax(320px, 1.45fr) minmax(280px, 0.95fr);
-      gap: 18px;
+      grid-template-columns: minmax(360px, 1.55fr) minmax(300px, 0.95fr);
+      gap: 16px;
     }
-    .stage-panel { padding: 12px; position: relative; overflow: hidden; }
-    #stage {
+    .stage-panel { padding: 12px; }
+    .stage {
       position: relative;
-      width: 100%;
-      height: 540px;
+      height: 660px;
       overflow: hidden;
-      background:
-        radial-gradient(circle at 50% 12%, rgba(255,255,255,0.5), transparent 24%),
-        linear-gradient(180deg, #efe5b6 0%, #dfd4aa 54%, #b9a06c 54%, #b9a06c 100%);
-      image-rendering: pixelated;
       border: 3px solid var(--line);
+      background:
+        radial-gradient(circle at 50% 15%, rgba(255,255,255,0.48), transparent 24%),
+        linear-gradient(180deg, #efe5b9 0%, #d9ccab 42%, #c6b18c 42%, #c6b18c 100%);
+      perspective: 1200px;
+      isolation: isolate;
     }
     .stage-grid {
       position: absolute;
       inset: 0;
       background-image:
-        linear-gradient(rgba(45,42,36,0.08) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(45,42,36,0.08) 1px, transparent 1px);
-      background-size: 24px 24px;
-      opacity: 0.45;
+        linear-gradient(rgba(45,42,36,0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(45,42,36,0.07) 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity: 0.55;
     }
-    .legend {
+    .map-floor {
       position: absolute;
-      left: 24px;
-      top: 16px;
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      pointer-events: none;
-      z-index: 4;
+      inset: 8% 4% 12%;
+      transform: rotateX(62deg);
+      transform-origin: center center;
+      border: 3px solid rgba(45,42,36,0.3);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.06)),
+        linear-gradient(90deg, rgba(255,255,255,0.06), rgba(0,0,0,0.03));
+      box-shadow: 0 40px 80px rgba(35,31,25,0.18);
+      z-index: 0;
     }
-    .chip {
-      padding: 6px 10px;
-      border: 2px solid var(--line);
-      background: rgba(255,255,255,0.72);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .accent-human { color: var(--accent-human); }
-    .accent-agent { color: var(--accent-agent); }
-    .accent-tool { color: var(--accent-tool); }
-    .accent-think { color: var(--accent-think); }
-    .accent-commentary { color: var(--accent-commentary); }
-    .station {
+    .corridor {
       position: absolute;
-      bottom: 82px;
-      width: 180px;
-      height: 148px;
-      border: 3px solid var(--line);
-      background: rgba(255, 250, 236, 0.84);
-      box-shadow: var(--shadow);
-      padding: 12px;
+      height: 24px;
+      border: 3px solid rgba(45,42,36,0.38);
+      background: linear-gradient(90deg, #bea57d, #d1bb92);
+      box-shadow: 0 8px 0 rgba(35,31,25,0.08);
       z-index: 1;
     }
-    .station-human { left: 24px; }
-    .station-llm { left: calc(50% - 90px); }
-    .station-tool { right: 24px; }
-    .station-label {
-      font-size: 12px;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-    .station-title {
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 6px;
-    }
-    .station-copy {
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .station-core {
+    .corridor-main { left: 18%; top: 63%; width: 63%; }
+    .corridor-spine { left: 48%; top: 32%; width: 16%; transform: rotate(90deg); }
+    .corridor-tool-a { left: 63%; top: 30%; width: 18%; }
+    .corridor-tool-b { left: 63%; top: 46%; width: 18%; }
+    .room {
       position: absolute;
-      left: 50%;
-      top: 64px;
-      width: 52px;
-      height: 52px;
-      transform: translateX(-50%);
-      border: 3px solid var(--line);
-      background: #fff9e9;
+      width: 188px;
+      height: 150px;
+      transform: translate(-50%, -50%);
+      z-index: 2;
     }
-    .station-human .station-core::before,
-    .station-human .station-core::after,
-    .station-llm .station-core::before,
-    .station-llm .station-core::after,
-    .station-tool .station-core::before,
-    .station-tool .station-core::after {
+    .room-face {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border: 3px solid var(--line);
+      background: rgba(255,251,241,0.94);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+    .room-face::before, .room-face::after {
+      content: "";
+      position: absolute;
+      background: rgba(35,31,25,0.12);
+    }
+    .room-face::before {
+      left: 10px;
+      right: -14px;
+      bottom: -14px;
+      height: 14px;
+      border: 3px solid var(--line);
+      border-top: none;
+      transform: skewX(-45deg);
+      transform-origin: left top;
+    }
+    .room-face::after {
+      top: 10px;
+      right: -14px;
+      bottom: -14px;
+      width: 14px;
+      border: 3px solid var(--line);
+      border-left: none;
+      transform: skewY(-45deg);
+      transform-origin: left top;
+    }
+    .room-human .room-face { background: rgba(255, 238, 226, 0.96); }
+    .room-llm .room-face { background: rgba(232, 238, 252, 0.96); }
+    .room-tool .room-face { background: rgba(248, 240, 212, 0.96); }
+    .room-eyebrow { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .room-title { margin-top: 6px; font-size: 18px; font-weight: 700; }
+    .room-copy { margin-top: 8px; font-size: 12px; line-height: 1.42; max-width: 112px; }
+    .room-door {
+      position: absolute;
+      left: calc(50% - 16px);
+      bottom: 0;
+      width: 32px;
+      height: 42px;
+      background: rgba(35,31,25,0.14);
+      border: 3px solid var(--line);
+      border-bottom: none;
+    }
+    .room-icon {
+      position: absolute;
+      right: 16px;
+      top: 22px;
+      width: 44px;
+      height: 44px;
+      border: 3px solid var(--line);
+      background: #fff9e8;
+    }
+    .room-icon-human::before, .room-icon-human::after,
+    .room-icon-llm::before, .room-icon-llm::after,
+    .room-icon-tool::before, .room-icon-tool::after {
       content: "";
       position: absolute;
       background: var(--line);
     }
-    .station-human .station-core::before { inset: 8px 18px 8px 18px; }
-    .station-human .station-core::after { inset: 18px 8px 18px 8px; }
-    .station-llm .station-core::before { inset: 8px; border: 3px solid var(--line); background: transparent; }
-    .station-llm .station-core::after { inset: 18px; background: var(--accent-think); }
-    .station-tool .station-core::before { left: 8px; top: 20px; width: 36px; height: 8px; }
-    .station-tool .station-core::after { left: 22px; top: 8px; width: 8px; height: 36px; }
+    .room-icon-human::before { left: 16px; top: 6px; width: 8px; height: 30px; }
+    .room-icon-human::after { left: 6px; top: 16px; width: 30px; height: 8px; }
+    .room-icon-llm::before { inset: 8px; border: 3px solid var(--line); background: transparent; }
+    .room-icon-llm::after { left: 16px; top: 16px; width: 8px; height: 8px; box-shadow: -10px 0 0 var(--llm), 10px 0 0 var(--llm), 0 10px 0 var(--llm); background: var(--llm); }
+    .room-icon-tool::before { left: 8px; top: 18px; width: 28px; height: 8px; }
+    .room-icon-tool::after { left: 18px; top: 8px; width: 8px; height: 28px; }
+    .room.active { z-index: 4; }
     .runner-layer {
       position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 54px;
-      height: 180px;
-      z-index: 3;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
     }
     .runner {
       position: absolute;
       left: 80px;
-      bottom: 18px;
-      width: 76px;
-      height: 120px;
+      top: 72%;
+      width: 82px;
+      height: 126px;
       transform-origin: 50% 100%;
-      filter: drop-shadow(4px 6px 0 rgba(33,31,25,0.18));
+      filter: drop-shadow(6px 9px 0 rgba(35,31,25,0.18));
     }
     .runner-shadow {
       position: absolute;
-      left: 16px;
-      bottom: 0;
-      width: 44px;
+      left: 18px;
+      bottom: 2px;
+      width: 46px;
       height: 10px;
-      background: rgba(33,31,25,0.18);
       border-radius: 999px;
+      background: rgba(35,31,25,0.18);
+    }
+    .runner-head {
+      position: absolute;
+      left: 22px;
+      top: 10px;
+      width: 34px;
+      height: 34px;
+      background: #faedcd;
+      border: 3px solid var(--line);
     }
     .runner-body {
       position: absolute;
-      left: 20px;
-      bottom: 18px;
-      width: 36px;
-      height: 60px;
-      background: var(--accent-agent);
+      left: 18px;
+      top: 42px;
+      width: 42px;
+      height: 40px;
+      border: 3px solid var(--line);
+      background: var(--agent);
       box-shadow:
-        0 -18px 0 0 #f8eed1,
-        0 -38px 0 0 var(--accent-agent),
-        -12px 8px 0 0 var(--accent-agent),
-        12px 8px 0 0 var(--accent-agent);
+        -14px 6px 0 -2px var(--agent),
+        14px 6px 0 -2px var(--agent);
     }
     .runner-eye {
       position: absolute;
-      top: 28px;
+      top: 20px;
       width: 4px;
       height: 4px;
       background: var(--line);
     }
-    .runner-eye.left { left: 30px; }
-    .runner-eye.right { left: 42px; }
+    .runner-eye.left { left: 32px; }
+    .runner-eye.right { left: 44px; }
     .runner-leg {
       position: absolute;
-      bottom: 4px;
-      width: 10px;
-      height: 24px;
+      top: 80px;
+      width: 11px;
+      height: 30px;
       background: #3f342b;
       transform-origin: 50% 0%;
     }
-    .runner-leg.left { left: 24px; }
-    .runner-leg.right { left: 42px; }
-    .runner.walking .runner-leg.left { animation: leg-left 0.22s linear infinite; }
-    .runner.walking .runner-leg.right { animation: leg-right 0.22s linear infinite; }
-    .runner.talking .runner-body { box-shadow:
-      0 -18px 0 0 #f8eed1,
-      0 -38px 0 0 var(--accent-agent),
-      -12px 6px 0 0 var(--accent-agent),
-      12px 10px 0 0 var(--accent-agent);
+    .runner-leg.left { left: 26px; }
+    .runner-leg.right { left: 44px; }
+    .runner.walking .runner-leg.left { animation: leg-left 0.24s linear infinite; }
+    .runner.walking .runner-leg.right { animation: leg-right 0.24s linear infinite; }
+    .runner.walking .runner-body { animation: torso-bob 0.24s linear infinite; }
+    .runner-badge {
+      position: absolute;
+      left: 8px;
+      top: -8px;
+      padding: 4px 8px;
+      border: 2px solid var(--line);
+      background: rgba(255,251,242,0.94);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
     }
     .bubble {
       position: absolute;
-      min-width: 220px;
-      max-width: 300px;
+      width: 260px;
       padding: 10px 12px;
       border: 3px solid var(--line);
-      background: rgba(255, 251, 241, 0.94);
+      background: rgba(255,251,242,0.96);
       box-shadow: var(--shadow);
       font-size: 13px;
       line-height: 1.45;
       opacity: 0;
       transform: translateY(8px);
-      pointer-events: none;
     }
     .bubble::after {
       content: "";
       position: absolute;
-      left: 18px;
-      bottom: -11px;
+      left: 24px;
+      bottom: -12px;
       width: 18px;
       height: 18px;
-      background: rgba(255, 251, 241, 0.94);
+      background: inherit;
       border-right: 3px solid var(--line);
       border-bottom: 3px solid var(--line);
       transform: rotate(45deg);
     }
-    .floor-label {
+    .route-log {
       position: absolute;
-      bottom: 18px;
-      font-size: 11px;
-      text-transform: uppercase;
-      color: rgba(33,31,25,0.58);
-      letter-spacing: 0.08em;
-      z-index: 1;
+      left: 18px;
+      top: 18px;
+      padding: 8px 10px;
+      border: 3px solid var(--line);
+      background: rgba(255,251,242,0.92);
+      font-size: 12px;
+      z-index: 6;
     }
-    .floor-human { left: 54px; }
-    .floor-llm { left: calc(50% - 44px); }
-    .floor-tool { right: 58px; }
-    @keyframes leg-left {
-      0% { transform: rotate(18deg); }
-      50% { transform: rotate(-18deg); }
-      100% { transform: rotate(18deg); }
-    }
-    @keyframes leg-right {
-      0% { transform: rotate(-18deg); }
-      50% { transform: rotate(18deg); }
-      100% { transform: rotate(-18deg); }
-    }
-    .sidebar { display: grid; gap: 18px; align-content: start; }
+    .sidebar { display: grid; gap: 16px; align-content: start; }
     .panel { padding: 14px; }
     .controls { display: flex; gap: 8px; flex-wrap: wrap; }
     button, select {
@@ -286,28 +359,42 @@ function renderStoryHtml(payload) {
       padding: 8px 10px;
       font: inherit;
       cursor: pointer;
-      box-shadow: 3px 3px 0 rgba(33, 31, 25, 0.14);
+      box-shadow: 3px 3px 0 rgba(33,31,25,0.12);
     }
-    button:active { transform: translate(1px, 1px); box-shadow: 2px 2px 0 rgba(33, 31, 25, 0.14); }
-    .event-card { min-height: 172px; }
+    .event-card { min-height: 164px; }
     .eyebrow { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
     .event-label { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
     .event-text { line-height: 1.6; white-space: pre-wrap; }
-    .timeline { max-height: 480px; overflow: auto; display: grid; gap: 10px; padding-right: 4px; }
+    .timeline { max-height: 520px; overflow: auto; display: grid; gap: 10px; padding-right: 4px; }
     .timeline-item {
       padding: 10px 12px;
       border: 2px solid var(--line);
-      background: rgba(255, 255, 255, 0.65);
+      background: rgba(255,255,255,0.65);
       cursor: pointer;
+      text-align: left;
     }
-    .timeline-item.active { background: #fff4cb; transform: translateX(3px); }
-    .timeline-item[hidden] { display: none; }
-    .timeline-type { font-size: 12px; text-transform: uppercase; color: var(--muted); }
+    .timeline-item.active { background: #fff1c6; transform: translateX(4px); }
+    .timeline-type { font-size: 12px; color: var(--muted); text-transform: uppercase; }
     .timeline-text { margin-top: 6px; line-height: 1.45; }
+    @keyframes leg-left {
+      0% { transform: rotate(20deg); }
+      50% { transform: rotate(-20deg); }
+      100% { transform: rotate(20deg); }
+    }
+    @keyframes leg-right {
+      0% { transform: rotate(-20deg); }
+      50% { transform: rotate(20deg); }
+      100% { transform: rotate(-20deg); }
+    }
+    @keyframes torso-bob {
+      0% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+      100% { transform: translateY(0); }
+    }
     @media (max-width: 980px) {
-      body { padding: 16px; }
+      body { padding: 14px; }
       .layout { grid-template-columns: 1fr; }
-      #stage { height: 420px; }
+      .stage { height: 720px; }
     }
   </style>
 </head>
@@ -323,38 +410,27 @@ function renderStoryHtml(payload) {
         </div>
       </div>
       <div class="meta">
-        <span>pixel stage: PixiJS</span>
-        <span>timeline: Anime.js</span>
+        <span>map rooms: human + llm + ${toolRooms.length} tool rooms</span>
+        <span>motion: Anime.js</span>
+        <span>renderer: DOM + PixiJS loaded</span>
       </div>
     </section>
     <section class="layout">
       <div class="panel stage-panel">
-        <div id="stage">
+        <div id="stage" class="stage">
           <div class="stage-grid"></div>
-          <div id="station-human" class="station station-human">
-            <div class="station-label">Human Zone</div>
-            <div class="station-title">User Dock</div>
-            <div class="station-copy">用户提需求、打断、确认方向。</div>
-            <div class="station-core"></div>
-          </div>
-          <div id="station-llm" class="station station-llm">
-            <div class="station-label">Core Loop</div>
-            <div class="station-title">LLM Console</div>
-            <div class="station-copy">思考、组织回复、决定下一步动作。</div>
-            <div class="station-core"></div>
-          </div>
-          <div id="station-tool" class="station station-tool">
-            <div class="station-label">Execution</div>
-            <div class="station-title">Tool Workshop</div>
-            <div class="station-copy">跑命令、读文件、调用工具、拿结果。</div>
-            <div class="station-core"></div>
-          </div>
-          <div class="floor-label floor-human">Human</div>
-          <div class="floor-label floor-llm">LLM</div>
-          <div class="floor-label floor-tool">Tools</div>
+          <div class="map-floor"></div>
+          <div class="corridor corridor-main"></div>
+          <div class="corridor corridor-spine"></div>
+          <div class="corridor corridor-tool-a"></div>
+          <div class="corridor corridor-tool-b"></div>
+          <div id="route-log" class="route-log">Agent enters the map.</div>
+          ${rooms.map(roomMarkup).join("")}
           <div class="runner-layer">
             <div id="runner" class="runner">
+              <div class="runner-badge">AGENT</div>
               <div class="runner-shadow"></div>
+              <div class="runner-head"></div>
               <div class="runner-body"></div>
               <div class="runner-eye left"></div>
               <div class="runner-eye right"></div>
@@ -363,12 +439,6 @@ function renderStoryHtml(payload) {
             </div>
             <div id="bubble" class="bubble"></div>
           </div>
-        </div>
-        <div class="legend">
-          <div class="chip accent-human">Human</div>
-          <div class="chip accent-agent">Agent</div>
-          <div class="chip accent-tool">Tool</div>
-          <div class="chip accent-think">Thinking</div>
         </div>
       </div>
       <div class="sidebar">
@@ -384,21 +454,12 @@ function renderStoryHtml(payload) {
               <option value="1.5">1.5x</option>
               <option value="2">2x</option>
             </select>
-            <select id="filter-select" aria-label="Filter events">
-              <option value="all">All Events</option>
-              <option value="user">Human</option>
-              <option value="reasoning">Thinking</option>
-              <option value="commentary">Commentary</option>
-              <option value="tool_call">Tool Calls</option>
-              <option value="tool_result">Tool Results</option>
-              <option value="assistant">Replies</option>
-            </select>
           </div>
         </section>
         <section class="panel event-card">
           <div class="eyebrow">Current Beat</div>
           <div id="event-label" class="event-label">Ready</div>
-          <div id="event-text" class="event-text">Press play to replay this session as a pixel story.</div>
+          <div id="event-text" class="event-text">The agent is waiting for the first route.</div>
         </section>
         <section class="panel">
           <div class="eyebrow">Timeline</div>
@@ -412,11 +473,12 @@ function renderStoryHtml(payload) {
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
   <script>
-    (async function () {
+    (function () {
       const story = JSON.parse(document.getElementById("story-data").textContent);
       const stageElement = document.getElementById("stage");
       const runnerElement = document.getElementById("runner");
       const bubbleElement = document.getElementById("bubble");
+      const routeLogElement = document.getElementById("route-log");
       const timelineElement = document.getElementById("timeline");
       const eventLabel = document.getElementById("event-label");
       const eventText = document.getElementById("event-text");
@@ -425,183 +487,113 @@ function renderStoryHtml(payload) {
       const prevButton = document.getElementById("prev-button");
       const nextButton = document.getElementById("next-button");
       const speedSelect = document.getElementById("speed-select");
-      const filterSelect = document.getElementById("filter-select");
       const events = Array.isArray(story.events) ? story.events : [];
       let activeIndex = -1;
       let playbackTimer = null;
       let playbackRate = 1;
-      let runnerX = 80;
-      let idlePhase = 0;
-
-      const stationElements = {
-        human: document.getElementById("station-human"),
-        llm: document.getElementById("station-llm"),
-        tool: document.getElementById("station-tool"),
-      };
-
-      function eventActor(event) {
-        if (event.type === "user") return "human";
-        if (event.type === "tool_call" || event.type === "tool_result") return "tool";
-        return "llm";
-      }
+      let runnerState = { x: 72, y: 74, scale: 1 };
 
       function summarize(text) {
         if (!text) return "";
-        return text.length > 92 ? text.slice(0, 89) + "..." : text;
+        return text.length > 96 ? text.slice(0, 93) + "..." : text;
       }
 
-      function stationX(kind) {
-        const station = stationElements[kind];
+      function roomForEvent(event) {
+        if (event.type === "user" || event.type === "assistant") {
+          return "human-hall";
+        }
+        if (event.type === "reasoning" || event.type === "commentary") {
+          return "llm-core";
+        }
+        if (event.type === "tool_call" || event.type === "tool_result") {
+          const match = (story.toolRooms || []).find((room) => room.toolName === event.toolName);
+          return match ? match.id : "tool-workshop";
+        }
+        return "llm-core";
+      }
+
+      function roomTarget(roomId) {
+        const room = stageElement.querySelector('[data-room-id="' + roomId + '"]');
         const stageRect = stageElement.getBoundingClientRect();
-        const stationRect = station.getBoundingClientRect();
-        return stationRect.left - stageRect.left + stationRect.width / 2 - runnerElement.offsetWidth / 2;
+        const roomRect = room.getBoundingClientRect();
+        const x = roomRect.left - stageRect.left + roomRect.width / 2 - runnerElement.offsetWidth / 2;
+        const y = roomRect.top - stageRect.top + roomRect.height - 54;
+        const normalized = Math.min(1, Math.max(0, y / stageRect.height));
+        const scale = 0.8 + normalized * 0.34;
+        return { room, x, y, scale };
       }
 
-      function stageColor(kind) {
-        if (kind === "human") return "var(--accent-human)";
-        if (kind === "tool") return "var(--accent-tool)";
-        if (kind === "llm") return "var(--accent-think)";
-        return "var(--accent-agent)";
+      function applyRunnerState() {
+        runnerElement.style.left = runnerState.x + "px";
+        runnerElement.style.top = runnerState.y + "px";
+        const direction = runnerElement.dataset.direction || "1";
+        runnerElement.style.transform = "scale(" + direction + "," + runnerState.scale + ")";
       }
 
-      function setRunnerColor(kind) {
-        runnerElement.style.setProperty("--runner-color", stageColor(kind));
-        runnerElement.querySelector(".runner-body").style.background = stageColor(kind);
-      }
-
-      function moveRunnerTo(kind, immediate) {
-        const targetX = stationX(kind);
-        const distance = Math.abs(targetX - runnerX);
-        runnerElement.classList.add("walking");
-        runnerElement.style.transform = targetX < runnerX ? "scaleX(-1)" : "scaleX(1)";
-
-        if (typeof anime === "function" && !immediate) {
-          anime({
-            targets: { value: runnerX },
-            value: targetX,
-            duration: Math.max(380, Math.min(980, distance * 1.6)),
-            easing: "easeInOutQuad",
-            update(anim) {
-              runnerX = anim.animations[0].currentValue;
-              runnerElement.style.left = runnerX + "px";
-            },
-            complete() {
-              runnerX = targetX;
-              runnerElement.style.left = runnerX + "px";
-              runnerElement.classList.remove("walking");
-            },
-          });
-        } else {
-          runnerX = targetX;
-          runnerElement.style.left = runnerX + "px";
-          setTimeout(() => runnerElement.classList.remove("walking"), immediate ? 0 : 320);
-        }
-      }
-
-      function showBubble(text, kind) {
+      function setBubble(text, tone) {
         bubbleElement.textContent = summarize(text);
-        bubbleElement.style.left = Math.max(18, Math.min(stageElement.clientWidth - 324, runnerX - 80)) + "px";
-        bubbleElement.style.bottom = kind === "tool" ? "146px" : "154px";
-        bubbleElement.style.borderColor = "var(--line)";
-        bubbleElement.style.background = kind === "human"
-          ? "rgba(255, 238, 226, 0.96)"
-          : kind === "tool"
-            ? "rgba(255, 248, 214, 0.96)"
-            : "rgba(239, 244, 255, 0.96)";
-        if (typeof anime === "function") {
-          anime.remove(bubbleElement);
-          anime({
-            targets: bubbleElement,
-            opacity: [0, 1],
-            translateY: [10, 0],
-            duration: 220,
-            easing: "easeOutQuad",
-          });
-        } else {
-          bubbleElement.style.opacity = "1";
-          bubbleElement.style.transform = "translateY(0)";
-        }
+        bubbleElement.style.left = Math.max(18, Math.min(stageElement.clientWidth - 280, runnerState.x - 80)) + "px";
+        bubbleElement.style.top = Math.max(18, runnerState.y - 86) + "px";
+        bubbleElement.style.background = tone === "human"
+          ? "rgba(255, 239, 229, 0.96)"
+          : tone === "tool"
+            ? "rgba(250, 242, 214, 0.96)"
+            : "rgba(234, 240, 253, 0.96)";
+        anime.remove(bubbleElement);
+        anime({
+          targets: bubbleElement,
+          opacity: [0, 1],
+          translateY: [8, 0],
+          duration: 220,
+          easing: "easeOutQuad",
+        });
       }
 
-      function pulseStation(kind) {
-        const station = stationElements[kind];
-        if (typeof anime === "function") {
-          anime.remove(station);
-          anime({
-            targets: station,
-            scale: [1, 1.04, 1],
-            duration: 420,
-            easing: "easeOutQuad",
-          });
-        } else {
-          station.style.transform = "scale(1.03)";
-          setTimeout(() => { station.style.transform = "scale(1)"; }, 260);
-        }
+      function highlightRoom(roomId) {
+        stageElement.querySelectorAll(".room").forEach((node) => {
+          node.classList.toggle("active", node.dataset.roomId === roomId);
+        });
       }
 
-      function startIdleLoop() {
-        function tick() {
-          idlePhase += 0.08;
-          if (!runnerElement.classList.contains("walking")) {
-            const bob = Math.sin(idlePhase) * 3.2;
-            const scaleX = runnerElement.style.transform.includes("-1") ? -1 : 1;
-            runnerElement.style.translate = "0 " + bob + "px";
-            runnerElement.style.transform = "scaleX(" + scaleX + ")";
-          }
-          requestAnimationFrame(tick);
+      function moveRunner(roomId, immediate) {
+        const target = roomTarget(roomId);
+        const direction = target.x < runnerState.x ? "-1" : "1";
+        runnerElement.dataset.direction = direction;
+        highlightRoom(roomId);
+
+        if (immediate) {
+          runnerState = { x: target.x, y: target.y, scale: target.scale };
+          applyRunnerState();
+          return;
         }
-        requestAnimationFrame(tick);
+
+        runnerElement.classList.add("walking");
+        anime.remove(runnerState);
+        anime({
+          targets: runnerState,
+          x: target.x,
+          y: target.y,
+          scale: target.scale,
+          duration: 900,
+          easing: "easeInOutQuad",
+          update: applyRunnerState,
+          complete() {
+            runnerElement.classList.remove("walking");
+          },
+        });
       }
 
       function renderTimeline() {
-      timelineElement.replaceChildren();
-      events.forEach((event, index) => {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className = "timeline-item";
-        item.dataset.index = String(index);
-        item.dataset.type = event.type;
-        item.innerHTML = '<div class="timeline-type">' + event.label + '</div><div class="timeline-text">' + summarize(event.text) + '</div>';
-        item.addEventListener("click", () => showEvent(index, { animate: true }));
-        timelineElement.appendChild(item);
-      });
-      }
-
-      function bounceActor(actor, options = {}) {
-        anime({
-          targets: actor.container,
-          keyframes: [
-            { y: actor.container.y - (options.jump || 22), duration: 180 },
-            { y: actor.container.y, duration: 220 },
-          ],
-          easing: "easeOutQuad",
+        timelineElement.replaceChildren();
+        events.forEach((event, index) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "timeline-item";
+          item.dataset.index = String(index);
+          item.innerHTML = '<div class="timeline-type">' + event.label + '</div><div class="timeline-text">' + summarize(event.text) + '</div>';
+          item.addEventListener("click", () => showEvent(index, { immediate: false }));
+          timelineElement.appendChild(item);
         });
-        anime({
-          targets: actor.container.scale,
-          keyframes: [
-            { x: 3.15, y: 2.82, duration: 120 },
-            { x: 3, y: 3, duration: 220 },
-          ],
-          easing: "easeOutQuad",
-        });
-      }
-
-      function showReasoningPulse() {
-        pulse.alpha = 0.95;
-        pulse.scale.set(0.5);
-        anime({ targets: pulse, alpha: [0.95, 0], duration: 520, easing: "easeOutQuad" });
-        anime({ targets: pulse.scale, x: [0.5, 1.8], y: [0.5, 1.8], duration: 520, easing: "easeOutQuad" });
-      }
-
-      function showToolOrb(color) {
-        orb.alpha = 1;
-        orb.tint = color;
-        orb.scale.set(2.2);
-        orb.x = actorPositions.agent;
-        orb.y = app.screen.height - 235;
-        anime({ targets: orb, x: actorPositions.tool, y: app.screen.height - 235, duration: 360, easing: "easeInOutQuad" });
-        anime({ targets: orb.scale, x: [2.2, 3], y: [2.2, 3], duration: 360, easing: "easeOutQuad" });
-        anime({ targets: orb, alpha: [1, 0], duration: 500, delay: 180, easing: "easeOutQuad" });
       }
 
       function highlightTimeline(index) {
@@ -610,95 +602,85 @@ function renderStoryHtml(payload) {
         });
       }
 
+      function routeLine(event, roomId) {
+        const room = stageElement.querySelector('[data-room-id="' + roomId + '"]');
+        const roomTitle = room.querySelector(".room-title")?.textContent || roomId;
+        return "Agent -> " + roomTitle + " -> " + event.label;
+      }
+
+      function toneForEvent(event) {
+        if (event.type === "user" || event.type === "assistant") return "human";
+        if (event.type === "tool_call" || event.type === "tool_result") return "tool";
+        return "llm";
+      }
+
       function showEvent(index, options = {}) {
         if (index < 0 || index >= events.length) return;
         activeIndex = index;
         const event = events[index];
-        const actor = eventActor(event);
+        const roomId = roomForEvent(event);
         eventLabel.textContent = event.label;
         eventText.textContent = event.text;
+        routeLogElement.textContent = routeLine(event, roomId);
         highlightTimeline(index);
-        setRunnerColor(actor);
-        moveRunnerTo(actor, options.immediate === true);
-        pulseStation(actor);
-        runnerElement.classList.add("talking");
-        setTimeout(() => runnerElement.classList.remove("talking"), 420);
-        showBubble(event.text, actor);
-
-        if (options.scroll !== false) {
-          timelineElement.querySelector('.timeline-item[data-index="' + index + '"]')?.scrollIntoView({ block: "nearest" });
-        }
+        moveRunner(roomId, options.immediate === true);
+        setTimeout(() => {
+          setBubble(event.text, toneForEvent(event));
+          runnerElement.classList.add("talking");
+          setTimeout(() => runnerElement.classList.remove("talking"), 380);
+        }, options.immediate === true ? 0 : 660);
       }
 
-      function visibleIndexes() {
-      return events
-        .map((event, index) => ({ event, index }))
-        .filter(({ event }) => filterSelect.value === "all" || event.type === filterSelect.value)
-        .map(({ index }) => index);
-      }
-
-      function move(step) {
-      const visible = visibleIndexes();
-      if (visible.length === 0) return;
-      const current = visible.indexOf(activeIndex);
-      const nextOffset = current === -1 ? 0 : Math.min(Math.max(current + step, 0), visible.length - 1);
-      showEvent(visible[nextOffset], { animate: true });
+      function step(delta) {
+        if (events.length === 0) return;
+        const next = activeIndex < 0 ? 0 : Math.max(0, Math.min(events.length - 1, activeIndex + delta));
+        showEvent(next, { immediate: false });
       }
 
       function schedulePlayback() {
-      clearTimeout(playbackTimer);
-      const visible = visibleIndexes();
-      if (visible.length === 0) return;
-      const current = visible.indexOf(activeIndex);
-      const nextIndex = current === -1 ? visible[0] : visible[current + 1];
-      if (nextIndex == null) return;
-      playbackTimer = setTimeout(() => {
-        showEvent(nextIndex, { animate: true });
-        schedulePlayback();
-      }, 1200 / playbackRate);
+        clearTimeout(playbackTimer);
+        if (activeIndex >= events.length - 1) return;
+        playbackTimer = setTimeout(() => {
+          step(1);
+          schedulePlayback();
+        }, 2200 / playbackRate);
       }
 
-      function applyFilter() {
-      timelineElement.querySelectorAll(".timeline-item").forEach((node) => {
-        const hidden = filterSelect.value !== "all" && node.dataset.type !== filterSelect.value;
-        node.hidden = hidden;
-      });
-      const visible = visibleIndexes();
-      if (!visible.includes(activeIndex) && visible.length > 0) {
-        showEvent(visible[0], { animate: false });
-      }
-      }
-
-      playButton.addEventListener("click", () => {
-        if (activeIndex === -1) {
-          const visible = visibleIndexes();
-          if (visible[0] != null) showEvent(visible[0], { animate: true });
+      function startIdle() {
+        let phase = 0;
+        function tick() {
+          phase += 0.08;
+          if (!runnerElement.classList.contains("walking")) {
+            runnerElement.style.marginTop = Math.sin(phase) * 3 + "px";
+          }
+          requestAnimationFrame(tick);
         }
-        schedulePlayback();
-      });
+        requestAnimationFrame(tick);
+      }
+
+      playButton.addEventListener("click", schedulePlayback);
       pauseButton.addEventListener("click", () => clearTimeout(playbackTimer));
-      prevButton.addEventListener("click", () => move(-1));
-      nextButton.addEventListener("click", () => move(1));
+      prevButton.addEventListener("click", () => step(-1));
+      nextButton.addEventListener("click", () => step(1));
       speedSelect.addEventListener("change", () => {
         playbackRate = Number(speedSelect.value) || 1;
         if (playbackTimer) schedulePlayback();
       });
-      filterSelect.addEventListener("change", applyFilter);
       window.addEventListener("resize", () => {
-        const currentEvent = events[activeIndex];
-        if (currentEvent) {
-          moveRunnerTo(eventActor(currentEvent), true);
-          showBubble(currentEvent.text, eventActor(currentEvent));
+        if (activeIndex >= 0) {
+          moveRunner(roomForEvent(events[activeIndex]), true);
+          setBubble(events[activeIndex].text, toneForEvent(events[activeIndex]));
         }
       });
 
       renderTimeline();
-      runnerElement.style.left = runnerX + "px";
-      applyFilter();
-      if (events[0]) showEvent(0, { immediate: true });
-      startIdleLoop();
+      applyRunnerState();
+      startIdle();
+      if (events[0]) {
+        showEvent(0, { immediate: true });
+      }
       if (events.length > 1) {
-        setTimeout(() => schedulePlayback(), 360);
+        setTimeout(schedulePlayback, 500);
       }
     })();
   </script>
