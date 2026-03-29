@@ -446,13 +446,16 @@ function renderStoryHtml(payload) {
           <div class="eyebrow">Playback</div>
           <div class="controls">
             <button id="play-button" type="button">Play</button>
+            <button id="replay-button" type="button">Replay</button>
             <button id="pause-button" type="button">Pause</button>
             <button id="prev-button" type="button">Prev</button>
             <button id="next-button" type="button">Next</button>
             <select id="speed-select" aria-label="Playback speed">
+              <option value="0.5">0.5x</option>
               <option value="1">1x</option>
               <option value="1.5">1.5x</option>
               <option value="2">2x</option>
+              <option value="3">3x</option>
             </select>
           </div>
         </section>
@@ -483,6 +486,7 @@ function renderStoryHtml(payload) {
       const eventLabel = document.getElementById("event-label");
       const eventText = document.getElementById("event-text");
       const playButton = document.getElementById("play-button");
+      const replayButton = document.getElementById("replay-button");
       const pauseButton = document.getElementById("pause-button");
       const prevButton = document.getElementById("prev-button");
       const nextButton = document.getElementById("next-button");
@@ -646,6 +650,13 @@ function renderStoryHtml(payload) {
         }, 2200 / playbackRate);
       }
 
+      function replayFromStart() {
+        clearTimeout(playbackTimer);
+        if (events.length === 0) return;
+        showEvent(0, { immediate: false });
+        setTimeout(schedulePlayback, 900 / playbackRate);
+      }
+
       function startIdle() {
         let phase = 0;
         function tick() {
@@ -659,6 +670,7 @@ function renderStoryHtml(payload) {
       }
 
       playButton.addEventListener("click", schedulePlayback);
+      replayButton.addEventListener("click", replayFromStart);
       pauseButton.addEventListener("click", () => clearTimeout(playbackTimer));
       prevButton.addEventListener("click", () => step(-1));
       nextButton.addEventListener("click", () => step(1));

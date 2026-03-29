@@ -245,6 +245,9 @@ test("exportSession renders a standalone session story html", async () => {
   assert.match(exported.files[0].content, /anime/i);
   assert.match(exported.files[0].content, /requestAnimationFrame/i);
   assert.match(exported.files[0].content, /schedulePlayback\(\)/);
+  assert.match(exported.files[0].content, /replay-button/);
+  assert.match(exported.files[0].content, />0\.5x</);
+  assert.match(exported.files[0].content, />3x</);
   assert.match(exported.files[0].content, /Briefing Hall/);
   assert.match(exported.files[0].content, /Reasoning Core/);
   assert.match(exported.files[0].content, /Room/);
