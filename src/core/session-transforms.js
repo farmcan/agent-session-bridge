@@ -35,6 +35,7 @@ export function splitSession(session, { recentUserTurns = 1 } = {}) {
 
   return {
     ...session,
+    rawItems: null,
     messages: session.messages.slice(startIndex).filter((message) => !isSkippableSplitUserMessage(message)),
   };
 }
@@ -47,6 +48,7 @@ export function forkSession(session, { prompt } = {}) {
 
   return {
     ...session,
+    rawItems: null,
     messages: [...session.messages, { role: "user", text: forkPrompt }],
   };
 }

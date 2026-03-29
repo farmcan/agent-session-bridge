@@ -235,6 +235,26 @@ Show the export body instead of writing files:
 kage q2c --stdout
 ```
 
+Generate a local HTML story replay for a session:
+
+```bash
+kage c2x --session ~/.claude/projects/.../session.jsonl --export session-story-html --out ./tmp/session-story.html
+open ./tmp/session-story.html
+```
+
+The story export is a standalone HTML file designed for local review. It turns the session into a pixel-style stage play:
+
+- `Human Input` appears as a human character entering with dialog.
+- `LLM Thinking` and `Agent Commentary` pulse around the agent character.
+- `Tool Call` and `Tool Result` are staged as a tool character and animated transfer effects.
+- Playback controls and filtering let you review only the parts you care about.
+
+Implementation choices:
+
+- `PixiJS` renders the pixel stage and characters.
+- `Anime.js` drives beat-to-beat animation and playback sequencing.
+- The HTML is self-contained, so there is no build step after export.
+
 ## Session Resolution
 
 The CLI does not blindly use the global latest session.

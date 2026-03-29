@@ -1,11 +1,13 @@
 import { renderClaudeSessionExport } from "./claude-session.js";
 import { renderCodexSessionExport } from "./codex-session.js";
 import { renderQoderSessionExport } from "./qoder-session.js";
+import { renderSessionStoryHtmlExport } from "./session-story-html.js";
 
 const exporters = {
   "claude-session": renderClaudeSessionExport,
   "codex-session": renderCodexSessionExport,
   "qoder-session": renderQoderSessionExport,
+  "session-story-html": renderSessionStoryHtmlExport,
 };
 
 export function getTargetExporter(format) {

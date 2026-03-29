@@ -31,6 +31,7 @@ export async function parse(items, sessionPath, agent) {
     cwd: sidecar?.working_dir ?? first.cwd ?? "unknown",
     title: sidecar?.title ?? null,
     updatedAt: sidecar?.updated_at ? new Date(sidecar.updated_at).toISOString() : null,
+    rawItems: items,
     messages,
   };
 }

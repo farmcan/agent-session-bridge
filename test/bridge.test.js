@@ -140,6 +140,16 @@ test("parseSession reads Claude sessions", async () => {
   assert.equal(session.messages.length, 3);
 });
 
+test("parseSession preserves raw items for story exports", async () => {
+  const session = await parseSession({
+    sessionPath: path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl"),
+    agent: "claude",
+  });
+
+  assert.ok(Array.isArray(session.rawItems));
+  assert.equal(session.rawItems.length, 6);
+});
+
 test("renderCodexResumeExport converts a Claude transcript", async () => {
   const exported = await renderCodexResumeExport({
     sessionPath: path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl"),
@@ -218,6 +228,26 @@ test("exportSession renders claude -> qodercli", async () => {
 
   assert.equal(exported.mode, "qoder-session");
   assert.equal(exported.files.length, 2);
+});
+
+test("exportSession renders a standalone session story html", async () => {
+  const exported = await exportSession({
+    sessionPath: path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl"),
+    sourceAgent: "claude",
+    targetAgent: "codex",
+    format: "session-story-html",
+  });
+
+  assert.equal(exported.mode, "session-story-html");
+  assert.equal(exported.files.length, 1);
+  assert.match(exported.files[0].fileName, /\.html$/);
+  assert.match(exported.files[0].content, /pixi/i);
+  assert.match(exported.files[0].content, /anime/i);
+  assert.match(exported.files[0].content, /requestAnimationFrame/i);
+  assert.match(exported.files[0].content, /schedulePlayback\(\)/);
+  assert.match(exported.files[0].content, /"type":"user"/);
+  assert.match(exported.files[0].content, /"type":"tool_result"/);
+  assert.match(exported.files[0].content, /"type":"assistant"/);
 });
 
 test("splitSession keeps only the most recent user turn and following messages", async () => {
@@ -977,6 +1007,29 @@ test("cli can fork a session before export", async () => {
   const content = await fs.readFile(exportPath, "utf8");
   assert.equal(result.code, 0);
   assert.match(content, /另外开一个分支，去做 session split/);
+});
+
+test("cli can export a session story html", async () => {
+  const outDir = await makeTempDir("story-export");
+  const exportPath = path.join(outDir, "story.html");
+  const result = await spawnCli([
+    "claude",
+    "codex",
+    "--session",
+    path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl"),
+    "--export",
+    "session-story-html",
+    "--out",
+    exportPath,
+    "--json",
+  ]);
+
+  const content = await fs.readFile(exportPath, "utf8");
+  assert.equal(result.code, 0);
+  assert.match(content, /Session Story/);
+  assert.match(content, /pixi/i);
+  assert.match(content, /anime/i);
+  assert.match(content, /requestAnimationFrame/i);
 });
 
 test("cli fails clearly when both --fork and --fork-file are provided", async () => {

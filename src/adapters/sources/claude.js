@@ -31,6 +31,7 @@ export function parse(items, sessionPath, agent) {
     cwd: first.cwd ?? "unknown",
     title: null,
     updatedAt: first.timestamp ?? null,
+    rawItems: items,
     messages,
   };
 }

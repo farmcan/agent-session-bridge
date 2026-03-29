@@ -47,7 +47,7 @@ Options:
   --session-id <id>
   --out <path>
   --output-dir <dir>
-  --export codex-session|claude-session|qoder-session
+  --export codex-session|claude-session|qoder-session|session-story-html
   --split-recent <n>
   --fork <prompt>
   --fork-file <path>
