@@ -28,12 +28,15 @@ Route aliases:
   x2x   codex -> codex
   x2c   codex -> claude
   x2q   codex -> qoder
+  x2v   codex -> visualize
   c2c   claude -> claude
   c2x   claude -> codex
   c2q   claude -> qoder
+  c2v   claude -> visualize
   q2q   qoder -> qoder
   q2x   qoder -> codex
   q2c   qoder -> claude
+  q2v   qoder -> visualize
 
 Agent shorthands:
   x     codex

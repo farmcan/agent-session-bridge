@@ -91,14 +91,17 @@ npm link
 ```bash
 kage c2x
 kage c2c
+kage c2v
 kage x2c
 kage x2x
+kage x2v
 kage c
 kage q
 kage x
 kage q2q
 kage q2x
 kage q2c
+kage q2v
 kage x2q
 kage c2q
 ```
@@ -154,12 +157,15 @@ If the export worked, Codex opens in the same project directory and continues fr
 | `x2x` | `codex -> codex` | `codex-session` |
 | `x2c` | `codex -> claude` | `claude-session` |
 | `x2q` | `codex -> qoder` | `qoder-session` |
+| `x2v` | `codex -> visualize` | `session-story-html` |
 | `c2c` | `claude -> claude` | `claude-session` |
 | `c2x` | `claude -> codex` | `codex-session` |
 | `c2q` | `claude -> qoder` | `qoder-session` |
+| `c2v` | `claude -> visualize` | `session-story-html` |
 | `q2q` | `qoder -> qoder` | `qoder-session` |
 | `q2x` | `qoder -> codex` | `codex-session` |
 | `q2c` | `qoder -> claude` | `claude-session` |
+| `q2v` | `qoder -> visualize` | `session-story-html` |
 
 Agent shorthands:
 
@@ -188,7 +194,7 @@ If you mistype a route alias such as `q2q`, `kage` reports the unknown alias and
 --session-id <id>
 --out <path>
 --output-dir <dir>
---export codex-session|claude-session|qoder-session
+--export codex-session|claude-session|qoder-session|session-story-html
 --split-recent <n>
 --fork <prompt>
 --fork-file <path>
@@ -238,21 +244,28 @@ kage q2c --stdout
 Generate a local HTML story replay for a session:
 
 ```bash
-kage c2x --session ~/.claude/projects/.../session.jsonl --export session-story-html --out ./tmp/session-story.html
+kage c2v --session ~/.claude/projects/.../session.jsonl --out ./tmp/session-story.html
 open ./tmp/session-story.html
+```
+
+The same shortcut exists for the other agents:
+
+```bash
+kage x2v
+kage q2v
 ```
 
 The story export is a standalone HTML file designed for local review. It turns the session into a pixel-style stage play:
 
-- `Human Input` appears as a human character entering with dialog.
-- `LLM Thinking` and `Agent Commentary` pulse around the agent character.
-- `Tool Call` and `Tool Result` are staged as a tool character and animated transfer effects.
-- Playback controls and filtering let you review only the parts you care about.
+- `Human Input` routes the agent into the human briefing room.
+- `LLM Thinking` and `Agent Commentary` send the agent into the reasoning core.
+- Each tool becomes its own room instead of sharing one generic workshop.
+- Playback controls support replay plus `0.5x / 1x / 1.5x / 2x / 3x`.
 
 Implementation choices:
 
-- `PixiJS` renders the pixel stage and characters.
-- `Anime.js` drives beat-to-beat animation and playback sequencing.
+- `Anime.js` drives room-to-room motion and playback sequencing.
+- `PixiJS` is still loaded for the visual layer, but the current map scene is DOM-first for easier room layout control.
 - The HTML is self-contained, so there is no build step after export.
 
 ## Session Resolution

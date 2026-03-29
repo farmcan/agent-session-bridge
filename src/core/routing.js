@@ -4,12 +4,15 @@ export const routeAliases = {
   x2x: { agent: "x", target: "x" },
   x2c: { agent: "x", target: "c" },
   x2q: { agent: "x", target: "q" },
+  x2v: { agent: "x", target: "x" },
   c2c: { agent: "c", target: "c" },
   c2x: { agent: "c", target: "x" },
   c2q: { agent: "c", target: "q" },
+  c2v: { agent: "c", target: "c" },
   q2q: { agent: "q", target: "q" },
   q2x: { agent: "q", target: "x" },
   q2c: { agent: "q", target: "c" },
+  q2v: { agent: "q", target: "q" },
 };
 
 const exportCapabilities = new Map(
@@ -36,11 +39,14 @@ const defaultAliasExportFormats = {
   x2c: "claude-session",
   c2x: "codex-session",
   x2x: "codex-session",
+  x2v: "session-story-html",
   q2q: "qoder-session",
   q2x: "codex-session",
   q2c: "claude-session",
+  q2v: "session-story-html",
   x2q: "qoder-session",
   c2q: "qoder-session",
+  c2v: "session-story-html",
 };
 
 function capabilityKey(sourceAgent, targetAgent) {

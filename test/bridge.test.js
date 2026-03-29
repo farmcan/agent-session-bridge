@@ -73,6 +73,9 @@ test("inferDefaultExportFormat prefers native exports for supported aliases", ()
   assert.equal(inferDefaultExportFormat({ routeAlias: "q2c", exportFormat: null }).exportFormat, "claude-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "x2q", exportFormat: null }).exportFormat, "qoder-session");
   assert.equal(inferDefaultExportFormat({ routeAlias: "c2q", exportFormat: null }).exportFormat, "qoder-session");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "c2v", exportFormat: null }).exportFormat, "session-story-html");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "x2v", exportFormat: null }).exportFormat, "session-story-html");
+  assert.equal(inferDefaultExportFormat({ routeAlias: "q2v", exportFormat: null }).exportFormat, "session-story-html");
 });
 
 test("getExportCapability exposes qoder export pairs", () => {
@@ -507,6 +510,9 @@ test("cli --help only documents native export commands", async () => {
   assert.equal(result.code, 0);
   assert.match(result.stdout, /kage <source> <target> \[options\]/);
   assert.match(result.stdout, /agent-session-bridge <source> <target> \[options\]/);
+  assert.match(result.stdout, /c2v\s+claude -> visualize/);
+  assert.match(result.stdout, /x2v\s+codex -> visualize/);
+  assert.match(result.stdout, /q2v\s+qoder -> visualize/);
   assert.doesNotMatch(result.stdout, /--handoff/);
   assert.doesNotMatch(result.stdout, /--copy/);
   assert.doesNotMatch(result.stdout, /x2r/);
@@ -534,7 +540,7 @@ test("cli reports supported aliases for unknown route aliases", async () => {
   const result = await spawnCli(["z2z"]);
   assert.equal(result.code, 1);
   assert.match(result.stderr, /Unknown route alias: z2z/);
-  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, c2c, c2x, c2q, q2q, q2x, q2c/);
+  assert.match(result.stderr, /Supported aliases: x2x, x2c, x2q, x2v, c2c, c2x, c2q, c2v, q2q, q2x, q2c, q2v/);
   assert.match(result.stderr, /Run: kage update/);
 });
 
@@ -707,6 +713,20 @@ test("cli supports x2q and c2q", async () => {
 
   assert.equal(JSON.parse(x2q.stdout).mode, "qoder-session");
   assert.equal(JSON.parse(c2q.stdout).mode, "qoder-session");
+});
+
+test("cli supports c2v, x2v, and q2v as story exports", async () => {
+  const claudeSessionPath = path.join(__dirname, "..", "fixtures", "sample-claude-session.jsonl");
+  const codexSessionPath = path.join(__dirname, "..", "fixtures", "sample-codex-session.jsonl");
+  const qoderSessionPath = path.join(__dirname, "..", "fixtures", "sample-qoder-session.jsonl");
+
+  const c2v = await spawnCli(["c2v", "--session", claudeSessionPath, "--json"]);
+  const x2v = await spawnCli(["x2v", "--session", codexSessionPath, "--json"]);
+  const q2v = await spawnCli(["q2v", "--session", qoderSessionPath, "--json"]);
+
+  assert.equal(JSON.parse(c2v.stdout).mode, "session-story-html");
+  assert.equal(JSON.parse(x2v.stdout).mode, "session-story-html");
+  assert.equal(JSON.parse(q2v.stdout).mode, "session-story-html");
 });
 
 test("cli runs correctly when invoked through a symlinked entrypoint", async () => {
