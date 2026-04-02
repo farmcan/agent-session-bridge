@@ -14,6 +14,8 @@ function sanitizeFileToken(value) {
 
 function renderStoryHtml(payload) {
   const serialized = escapeForScript(payload);
+  const titleSerialized = escapeForScript(String(payload.title ?? "").slice(0, 64));
+  const metaSerialized = escapeForScript(`source ${payload.sourceAgent}  session ${payload.sessionId}`);
   const toolRooms = Array.isArray(payload.toolRooms) ? payload.toolRooms : [];
   const toolWingLayouts = {
     filesystem: { title: "Filesystem Wing", left: 61, top: 8, width: 24, height: 25, slots: [{ left: 69, top: 18 }, { left: 81, top: 18 }] },
@@ -94,65 +96,36 @@ function renderStoryHtml(payload) {
   <title>${payload.title} · Session Story</title>
   <style>
     :root {
-      --bg: #efe7d3;
-      --panel: rgba(255, 251, 242, 0.92);
-      --ink: #231f19;
-      --muted: #71695d;
-      --line: #2d2a24;
-      --human: #d97a4a;
-      --llm: #6d7fa4;
-      --tool: #9a8f55;
-      --agent: #5d7c6f;
-      --path: #9d875f;
-      --shadow: 8px 8px 0 rgba(35,31,25,0.16);
+      --ink: #f3e8c8;
+      --line: #16110c;
+      --panel: rgba(24, 18, 13, 0.76);
+      --panel-strong: rgba(17, 13, 10, 0.92);
+      --accent: #e6b85c;
+      --accent-soft: #c28a3d;
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
-      min-height: 100%;
-      background:
-        radial-gradient(circle at 20% 0%, rgba(255,255,255,0.5), transparent 24%),
-        linear-gradient(180deg, #f0e7d0 0%, #e1d5bc 100%);
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #120d09;
       color: var(--ink);
       font-family: "Courier New", Consolas, monospace;
     }
-    body { padding: 20px; }
-    .shell { max-width: min(1800px, 98vw); margin: 0 auto; display: grid; gap: 16px; }
-    .header, .panel {
-      background: var(--panel);
-      border: 3px solid var(--line);
-      box-shadow: var(--shadow);
-    }
-    .header {
-      padding: 14px 18px;
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .title { font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-    .meta { font-size: 13px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
-    .layout {
-      display: grid;
-      grid-template-columns: minmax(980px, 2.5fr) minmax(240px, 0.52fr);
-      gap: 16px;
-    }
-    .stage-panel { padding: 10px; }
+    body { position: relative; }
     .stage {
-      position: relative;
-      height: min(92vh, 1120px);
-      min-height: 880px;
+      position: fixed;
+      inset: 0;
       overflow: hidden;
-      border: 3px solid var(--line);
       background:
-        radial-gradient(circle at 50% 15%, rgba(255,255,255,0.48), transparent 24%),
-        linear-gradient(180deg, #efe5b9 0%, #d9ccab 42%, #c6b18c 42%, #c6b18c 100%);
-      isolation: isolate;
+        radial-gradient(circle at 50% 0%, rgba(232, 182, 80, 0.18), transparent 26%),
+        linear-gradient(180deg, #1a120d 0%, #0f0a07 100%);
     }
     .phaser-stage {
       position: absolute;
       inset: 0;
-      z-index: 0;
+      z-index: 1;
     }
     .phaser-stage canvas {
       display: block;
@@ -160,129 +133,71 @@ function renderStoryHtml(payload) {
       height: 100%;
       image-rendering: pixelated;
     }
-    .bubble {
-      position: absolute;
-      width: 280px;
-      padding: 10px 12px;
-      border: 3px solid var(--line);
-      background: rgba(255,251,242,0.96);
-      box-shadow: var(--shadow);
-      font-size: 14px;
-      line-height: 1.45;
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    .bubble::after {
-      content: "";
+    .controls {
       position: absolute;
       left: 20px;
-      bottom: -12px;
-      width: 18px;
-      height: 18px;
-      background: inherit;
-      border-right: 3px solid var(--line);
-      border-bottom: 3px solid var(--line);
-      transform: rotate(45deg);
-    }
-    .route-log {
-      position: absolute;
-      left: 22px;
-      top: 22px;
+      top: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      z-index: 4;
       padding: 10px 12px;
       border: 3px solid var(--line);
-      background: rgba(255,251,242,0.92);
-      font-size: 14px;
-      z-index: 6;
+      background: var(--panel);
+      backdrop-filter: blur(6px);
     }
-    .sidebar { display: grid; gap: 16px; align-content: start; }
-    .panel { padding: 14px; }
-    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
     button, select {
       border: 2px solid var(--line);
-      background: #fff9e9;
-      color: var(--ink);
+      background: #f0dcb2;
+      color: #24180f;
       padding: 8px 10px;
       font: inherit;
       cursor: pointer;
-      box-shadow: 3px 3px 0 rgba(33,31,25,0.12);
+      min-width: 56px;
     }
-    .event-card { min-height: 164px; }
-    .eyebrow { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
-    .event-label { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
-    .event-text { line-height: 1.6; white-space: pre-wrap; }
-    .timeline { max-height: 460px; overflow: auto; display: grid; gap: 10px; padding-right: 4px; }
-    .timeline-item {
-      padding: 10px 12px;
-      border: 2px solid var(--line);
-      background: rgba(255,255,255,0.65);
-      cursor: pointer;
-      text-align: left;
+    .caption {
+      position: absolute;
+      right: 20px;
+      top: 20px;
+      z-index: 4;
+      padding: 8px 12px;
+      border: 3px solid var(--line);
+      background: var(--panel-strong);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #e7d6b2;
     }
-    .timeline-item.active { background: #fff1c6; transform: translateX(4px); }
-    .timeline-type { font-size: 12px; color: var(--muted); text-transform: uppercase; }
-    .timeline-text { margin-top: 6px; line-height: 1.45; }
-    @media (max-width: 980px) {
-      body { padding: 14px; }
-      .layout { grid-template-columns: 1fr; }
-      .stage { height: min(88vh, 980px); min-height: 760px; }
-      .bubble { width: 300px; font-size: 14px; }
+    @media (max-width: 900px) {
+      .controls {
+        left: 12px;
+        right: 12px;
+        top: 12px;
+      }
+      .caption {
+        display: none;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <section class="header">
-      <div>
-        <div class="title">${payload.title} · Session Story</div>
-        <div class="meta">
-          <span>source: ${payload.sourceAgent}</span>
-          <span>session: ${payload.sessionId}</span>
-          <span>cwd: ${payload.cwd}</span>
-        </div>
-      </div>
-      <div class="meta">
-        <span>map rooms: human + llm + ${toolRooms.length} tool rooms</span>
-        <span>motion: Anime.js</span>
-        <span>renderer: Phaser hybrid stage</span>
-      </div>
-    </section>
-    <section class="layout">
-      <div class="panel stage-panel">
-        <div id="stage" class="stage">
-          <div id="phaser-stage" class="phaser-stage"></div>
-          <div id="route-log" class="route-log">Agent enters the map.</div>
-          <div id="bubble" class="bubble"></div>
-        </div>
-      </div>
-      <div class="sidebar">
-        <section class="panel">
-          <div class="eyebrow">Playback</div>
-          <div class="controls">
-            <button id="play-button" type="button">Play</button>
-            <button id="replay-button" type="button">Replay</button>
-            <button id="pause-button" type="button">Pause</button>
-            <button id="prev-button" type="button">Prev</button>
-            <button id="next-button" type="button">Next</button>
-            <select id="speed-select" aria-label="Playback speed">
-              <option value="0.5">0.5x</option>
-              <option value="1">1x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2">2x</option>
-              <option value="3">3x</option>
-            </select>
-          </div>
-        </section>
-        <section class="panel event-card">
-          <div class="eyebrow">Current Beat</div>
-          <div id="event-label" class="event-label">Ready</div>
-          <div id="event-text" class="event-text">The agent is waiting for the first route.</div>
-        </section>
-        <section class="panel">
-          <div class="eyebrow">Timeline</div>
-          <div id="timeline" class="timeline"></div>
-        </section>
-      </div>
-    </section>
+  <div id="stage" class="stage">
+    <div id="phaser-stage" class="phaser-stage"></div>
+    <div class="controls">
+      <button id="play-button" type="button">Play</button>
+      <button id="replay-button" type="button">Replay</button>
+      <button id="pause-button" type="button">Pause</button>
+      <button id="prev-button" type="button">Prev</button>
+      <button id="next-button" type="button">Next</button>
+      <select id="speed-select" aria-label="Playback speed">
+        <option value="0.5">0.5x</option>
+        <option value="1">1x</option>
+        <option value="1.5">1.5x</option>
+        <option value="2">2x</option>
+        <option value="3">3x</option>
+      </select>
+    </div>
+    <div class="caption">Phaser Story Scene</div>
   </div>
 
   <script id="story-data" type="application/json">${serialized}</script>
@@ -293,15 +208,12 @@ function renderStoryHtml(payload) {
   <script>
     (function () {
       const story = JSON.parse(document.getElementById("story-data").textContent);
+      const sceneTitle = ${titleSerialized};
+      const sceneMeta = ${metaSerialized};
       const roomLayout = JSON.parse(document.getElementById("story-rooms").textContent);
       const wingLayout = JSON.parse(document.getElementById("story-wings").textContent);
       const stageElement = document.getElementById("stage");
       const phaserStageElement = document.getElementById("phaser-stage");
-      const bubbleElement = document.getElementById("bubble");
-      const routeLogElement = document.getElementById("route-log");
-      const timelineElement = document.getElementById("timeline");
-      const eventLabel = document.getElementById("event-label");
-      const eventText = document.getElementById("event-text");
       const playButton = document.getElementById("play-button");
       const replayButton = document.getElementById("replay-button");
       const pauseButton = document.getElementById("pause-button");
@@ -324,47 +236,8 @@ function renderStoryHtml(payload) {
         return beat.roomId || "llm-core";
       }
 
-      function setBubble(text, tone) {
-        bubbleElement.textContent = summarize(text);
-        const anchor = phaserApi?.getBubbleAnchor?.() ?? { x: 140, y: 240 };
-        bubbleElement.style.left = Math.max(18, Math.min(stageElement.clientWidth - 300, anchor.x - 94)) + "px";
-        bubbleElement.style.top = Math.max(18, anchor.y - 92) + "px";
-        bubbleElement.style.background = tone === "human"
-          ? "rgba(255, 239, 229, 0.96)"
-          : tone === "tool"
-            ? "rgba(250, 242, 214, 0.96)"
-            : "rgba(234, 240, 253, 0.96)";
-        anime.remove(bubbleElement);
-        anime({
-          targets: bubbleElement,
-          opacity: [0, 1],
-          translateY: [8, 0],
-          duration: 220,
-          easing: "easeOutQuad",
-        });
-      }
-
       function moveRunner(roomId, immediate) {
         phaserApi?.moveRunner(roomId, immediate);
-      }
-
-      function renderTimeline() {
-        timelineElement.replaceChildren();
-        beats.forEach((beat, index) => {
-          const item = document.createElement("button");
-          item.type = "button";
-          item.className = "timeline-item";
-          item.dataset.index = String(index);
-          item.innerHTML = '<div class="timeline-type">' + beat.label + '</div><div class="timeline-text">' + summarize(beat.text) + '</div>';
-          item.addEventListener("click", () => showEvent(index, { immediate: false }));
-          timelineElement.appendChild(item);
-        });
-      }
-
-      function highlightTimeline(index) {
-        timelineElement.querySelectorAll(".timeline-item").forEach((node) => {
-          node.classList.toggle("active", Number(node.dataset.index) === index);
-        });
       }
 
       function routeLine(beat, roomId) {
@@ -384,13 +257,16 @@ function renderStoryHtml(payload) {
         activeIndex = index;
         const beat = beats[index];
         const roomId = roomForBeat(beat);
-        eventLabel.textContent = beat.label;
-        eventText.textContent = beat.text;
-        routeLogElement.textContent = routeLine(beat, roomId);
-        highlightTimeline(index);
+        phaserApi?.setHud({
+          title: beat.label,
+          text: beat.text,
+          route: routeLine(beat, roomId),
+          recent: beats.slice(Math.max(0, index - 3), index + 1),
+          activeIndex: index,
+        });
         moveRunner(roomId, options.immediate === true);
         setTimeout(() => {
-          setBubble(beat.text, toneForBeat(beat));
+          phaserApi?.showSpeech(beat.text, toneForBeat(beat));
           phaserApi?.pulseRunner();
         }, options.immediate === true ? 0 : 660);
       }
@@ -433,13 +309,18 @@ function renderStoryHtml(payload) {
         const width = phaserStageElement.clientWidth || stageElement.clientWidth;
         const height = phaserStageElement.clientHeight || stageElement.clientHeight;
         const roomNodes = new Map();
-        const corridorNodes = [];
         let sceneRef = null;
         let runner = null;
         let runnerShadow = null;
         let runnerPulse = null;
         let idleOffset = 0;
         let activeRoomId = null;
+        let speechBubble = null;
+        let speechText = null;
+        let hudRoute = null;
+        let hudTitle = null;
+        let hudBody = null;
+        let hudBeatItems = [];
 
         function worldX(percent) {
           return (percent / 100) * width;
@@ -475,9 +356,12 @@ function renderStoryHtml(payload) {
             create() {
               const scene = this;
               sceneRef = scene;
-              scene.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0);
-              scene.add.rectangle(width / 2, height * 0.84, width * 0.96, height * 0.32, 0xb99664, 1).setDepth(0);
-              scene.add.rectangle(width / 2, height * 0.63, width * 0.84, height * 0.42, 0xd5bc90, 1).setDepth(0);
+              scene.add.rectangle(width / 2, height / 2, width, height, 0x120d09, 1).setDepth(0);
+              scene.add.rectangle(width / 2, height * 0.14, width * 1.1, height * 0.34, 0x2f1d13, 1).setDepth(0);
+              scene.add.rectangle(width / 2, height * 0.74, width * 1.1, height * 0.62, 0x3a2418, 1).setDepth(0);
+              scene.add.rectangle(width / 2, height * 0.82, width * 0.96, height * 0.32, 0x6f5434, 1).setDepth(0);
+              scene.add.rectangle(width / 2, height * 0.65, width * 0.86, height * 0.42, 0x97714a, 1).setDepth(0);
+              scene.add.rectangle(width / 2, height * 0.94, width, height * 0.14, 0x493420, 1).setDepth(0);
 
               wingLayout.forEach((wing) => {
                 const rect = scene.add.rectangle(
@@ -485,15 +369,15 @@ function renderStoryHtml(payload) {
                   worldY(wing.top) + worldY(wing.height) / 2,
                   worldX(wing.width),
                   worldY(wing.height),
-                  0xffffff,
-                  0.08,
-                ).setStrokeStyle(3, 0x5a4a33, 0.2).setDepth(1);
+                  0x2a1c14,
+                  0.45,
+                ).setStrokeStyle(4, 0x8e693d, 0.65).setDepth(1);
                 const label = scene.add.text(rect.x - rect.width / 2 + 14, rect.y - rect.height / 2 + 10, wing.title, {
                   fontFamily: "Courier New",
                   fontSize: "18px",
-                  color: "#231f19",
+                  color: "#f0dcb2",
                   fontStyle: "bold",
-                  backgroundColor: "#fffaf0",
+                  backgroundColor: "#1b140f",
                   padding: { x: 8, y: 6 },
                 }).setDepth(2);
                 rect.label = label;
@@ -505,57 +389,142 @@ function renderStoryHtml(payload) {
                 { x: width * 0.74, y: height * 0.31, w: width * 0.22, h: 28 },
                 { x: width * 0.74, y: height * 0.52, w: width * 0.22, h: 28 },
               ].forEach((corridor) => {
-                const shadow = scene.add.rectangle(corridor.x, corridor.y + 8, corridor.w, corridor.h, 0x8a6f47, 0.18).setDepth(1);
-                const line = scene.add.rectangle(corridor.x, corridor.y, corridor.w, corridor.h, 0xd7b98a, 1)
-                  .setStrokeStyle(3, 0x6a5739, 0.4)
+                scene.add.rectangle(corridor.x, corridor.y + 10, corridor.w, corridor.h + 8, 0x3c2b1b, 0.42).setDepth(1);
+                const line = scene.add.rectangle(corridor.x, corridor.y, corridor.w, corridor.h, 0xb98954, 1)
+                  .setStrokeStyle(4, 0x654226, 1)
                   .setDepth(2);
                 if (corridor.angle) {
                   line.angle = corridor.angle;
-                  shadow.angle = corridor.angle;
                 }
-                corridorNodes.push(line, shadow);
               });
 
               roomLayout.forEach((room) => {
                 const x = worldX(room.left);
                 const y = worldY(room.top);
-                const color = room.kind === "human" ? 0xffeee5 : room.kind === "llm" ? 0xeaf0fd : 0xf6ecd2;
-                scene.add.rectangle(x + 14, y + 18, 286, 208, 0x3a2d20, 0.12).setDepth(2);
-                const face = scene.add.rectangle(x, y, 286, 208, color, 1).setStrokeStyle(3, 0x2d2a24, 1).setDepth(3);
-                const roof = scene.add.rectangle(x, y - 96, 286, 24, 0xffffff, 0.24).setDepth(4);
+                const color = room.kind === "human" ? 0xf3d2b5 : room.kind === "llm" ? 0xc8d5f0 : 0xe7d6ab;
+                scene.add.rectangle(x + 18, y + 24, 300, 220, 0x1a130f, 0.45).setDepth(2);
+                const face = scene.add.rectangle(x, y, 300, 220, color, 1).setStrokeStyle(4, 0x2d1d13, 1).setDepth(3);
+                const roof = scene.add.rectangle(x, y - 102, 300, 28, 0xfff6df, 0.22).setDepth(4);
                 const title = scene.add.text(x - 116, y - 56, room.title, {
                   fontFamily: "Courier New",
                   fontSize: "24px",
                   fontStyle: "bold",
-                  color: "#231f19",
+                  color: "#2b1f15",
                   wordWrap: { width: 176 },
                 }).setDepth(4);
                 const eyebrow = scene.add.text(x - 116, y - 82, room.eyebrow, {
                   fontFamily: "Courier New",
                   fontSize: "13px",
-                  color: "#71695d",
+                  color: "#6d5a42",
                 }).setDepth(4);
                 const icon = room.kind === "human"
-                  ? scene.add.circle(x + 96, y - 54, 16, 0xd97a4a, 1).setStrokeStyle(3, 0x2d2a24, 1)
+                  ? scene.add.circle(x + 96, y - 54, 16, 0xd97a4a, 1).setStrokeStyle(4, 0x2d1d13, 1)
                   : room.kind === "llm"
-                    ? scene.add.star(x + 96, y - 54, 4, 10, 18, 0x6d7fa4, 1).setStrokeStyle(3, 0x2d2a24, 1)
-                    : scene.add.rectangle(x + 96, y - 54, 28, 28, 0x9a8f55, 1).setStrokeStyle(3, 0x2d2a24, 1);
+                    ? scene.add.star(x + 96, y - 54, 4, 10, 18, 0x6d7fa4, 1).setStrokeStyle(4, 0x2d1d13, 1)
+                    : scene.add.rectangle(x + 96, y - 54, 28, 28, 0x9a8f55, 1).setStrokeStyle(4, 0x2d1d13, 1);
                 icon.setDepth(4);
-                const door = scene.add.rectangle(x, y + 76, 42, 58, 0x7c6648, 0.32).setStrokeStyle(3, 0x2d2a24, 1).setDepth(5);
+                const door = scene.add.rectangle(x, y + 82, 48, 64, 0x6b4c30, 1).setStrokeStyle(4, 0x2d1d13, 1).setDepth(5);
                 roomNodes.set(room.id, { x, y, title: room.title, face, roof, titleNode: title, eyebrow, door, icon });
               });
 
-              runnerShadow = scene.add.ellipse(width * 0.12, height * 0.78, 56, 18, 0x000000, 0.18).setDepth(5);
+              const titleBar = scene.add.rectangle(width / 2, 42, Math.min(width * 0.52, 880), 52, 0x17110d, 0.92)
+                .setStrokeStyle(4, 0xa87b43, 1)
+                .setDepth(10);
+              scene.add.text(titleBar.x - titleBar.width / 2 + 18, 27, sceneTitle, {
+                fontFamily: "Courier New",
+                fontSize: "20px",
+                color: "#f1deba",
+                fontStyle: "bold",
+              }).setDepth(11);
+              scene.add.text(titleBar.x - titleBar.width / 2 + 18, 51, sceneMeta, {
+                fontFamily: "Courier New",
+                fontSize: "12px",
+                color: "#b99d74",
+              }).setDepth(11);
+
+              const routePanel = scene.add.rectangle(240, 118, 410, 42, 0x17110d, 0.86)
+                .setStrokeStyle(4, 0x8b6538, 1)
+                .setDepth(10);
+              hudRoute = scene.add.text(routePanel.x - routePanel.width / 2 + 16, routePanel.y - 10, "Agent enters the map.", {
+                fontFamily: "Courier New",
+                fontSize: "14px",
+                color: "#ead6af",
+              }).setDepth(11);
+
+              const currentPanel = scene.add.rectangle(280, height - 132, 468, 180, 0x17110d, 0.9)
+                .setStrokeStyle(4, 0xa87b43, 1)
+                .setDepth(10);
+              hudTitle = scene.add.text(currentPanel.x - currentPanel.width / 2 + 18, currentPanel.y - 68, "Ready", {
+                fontFamily: "Courier New",
+                fontSize: "22px",
+                color: "#f3e5c3",
+                fontStyle: "bold",
+              }).setDepth(11);
+              hudBody = scene.add.text(currentPanel.x - currentPanel.width / 2 + 18, currentPanel.y - 28, "The agent is waiting for the first route.", {
+                fontFamily: "Courier New",
+                fontSize: "14px",
+                color: "#cdb28a",
+                wordWrap: { width: 432 },
+                lineSpacing: 6,
+              }).setDepth(11);
+
+              const recentPanel = scene.add.rectangle(width - 210, height * 0.52, 360, Math.min(height * 0.58, 560), 0x17110d, 0.88)
+                .setStrokeStyle(4, 0x8b6538, 1)
+                .setDepth(10);
+              scene.add.text(recentPanel.x - recentPanel.width / 2 + 16, recentPanel.y - recentPanel.height / 2 + 18, "Recent Beats", {
+                fontFamily: "Courier New",
+                fontSize: "18px",
+                color: "#f2dfbc",
+                fontStyle: "bold",
+              }).setDepth(11);
+              for (let index = 0; index < 4; index += 1) {
+                const card = scene.add.rectangle(recentPanel.x, recentPanel.y - 150 + index * 92, 316, 72, 0x291d14, 0.96)
+                  .setStrokeStyle(3, 0x6e4f2c, 1)
+                  .setDepth(11);
+                const label = scene.add.text(card.x - 142, card.y - 18, "", {
+                  fontFamily: "Courier New",
+                  fontSize: "12px",
+                  color: "#f0d7aa",
+                  fontStyle: "bold",
+                }).setDepth(12);
+                const body = scene.add.text(card.x - 142, card.y + 4, "", {
+                  fontFamily: "Courier New",
+                  fontSize: "12px",
+                  color: "#c6aa80",
+                  wordWrap: { width: 284 },
+                }).setDepth(12);
+                hudBeatItems.push({ card, label, body });
+              }
+
+              speechBubble = scene.add.container(0, 0).setDepth(20).setAlpha(0);
+              const speechBg = scene.add.rectangle(0, 0, 260, 92, 0x17110d, 0.96).setStrokeStyle(4, 0xd9a057, 1);
+              const speechPointer = scene.add.triangle(-76, 54, 0, 0, 18, 18, 36, 0, 0xd9a057, 1);
+              speechPointer.setAngle(180);
+              const pointerFill = scene.add.triangle(-76, 54, 4, 2, 18, 12, 32, 2, 0x17110d, 1);
+              speechText = scene.add.text(-112, -28, "", {
+                fontFamily: "Courier New",
+                fontSize: "13px",
+                color: "#f4e3c1",
+                wordWrap: { width: 220 },
+                lineSpacing: 4,
+              });
+              speechBubble.add([speechBg, speechPointer, pointerFill, speechText]);
+
+              runnerShadow = scene.add.ellipse(width * 0.12, height * 0.78, 72, 22, 0x000000, 0.22).setDepth(5);
               runner = scene.add.container(width * 0.12, height * 0.74);
-              const head = scene.add.rectangle(0, -40, 38, 38, 0xfaedcd, 1).setStrokeStyle(3, 0x2d2a24, 1);
-              const body = scene.add.rectangle(0, 8, 46, 46, 0x5d7c6f, 1).setStrokeStyle(3, 0x2d2a24, 1);
-              const armL = scene.add.rectangle(-30, 14, 14, 32, 0x5d7c6f, 1);
-              const armR = scene.add.rectangle(30, 14, 14, 32, 0x5d7c6f, 1);
-              const legL = scene.add.rectangle(-12, 56, 12, 36, 0x3f342b, 1);
-              const legR = scene.add.rectangle(12, 56, 12, 36, 0x3f342b, 1);
-              const eyeL = scene.add.rectangle(-8, -42, 4, 4, 0x2d2a24, 1);
-              const eyeR = scene.add.rectangle(8, -42, 4, 4, 0x2d2a24, 1);
+              const cape = scene.add.rectangle(0, 8, 58, 68, 0x354a67, 1).setStrokeStyle(4, 0x2d1d13, 1);
+              const head = scene.add.rectangle(0, -40, 42, 42, 0xfaedcd, 1).setStrokeStyle(4, 0x2d1d13, 1);
+              const visor = scene.add.rectangle(0, -44, 34, 8, 0x2d1d13, 1);
+              const body = scene.add.rectangle(0, 10, 52, 50, 0x5d7c6f, 1).setStrokeStyle(4, 0x2d1d13, 1);
+              const armL = scene.add.rectangle(-34, 16, 14, 36, 0x5d7c6f, 1).setAngle(8);
+              const armR = scene.add.rectangle(34, 16, 14, 36, 0x5d7c6f, 1).setAngle(-8);
+              const legL = scene.add.rectangle(-12, 62, 14, 40, 0x3f342b, 1);
+              const legR = scene.add.rectangle(12, 62, 14, 40, 0x3f342b, 1);
+              const eyeL = scene.add.rectangle(-8, -42, 4, 4, 0x2d1d13, 1);
+              const eyeR = scene.add.rectangle(8, -42, 4, 4, 0x2d1d13, 1);
               runner.add([armL, armR, body, head, legL, legR, eyeL, eyeR]);
+              runner.addAt(cape, 0);
+              runner.add(visor);
               runner.setDepth(6);
               activeRoomId = null;
               applyIdlePosition();
@@ -571,16 +540,17 @@ function renderStoryHtml(payload) {
                     node.titleNode.setScale(1);
                     node.icon.setScale(1);
                   });
-                  target.face.setStrokeStyle(5, 0xd97a4a, 1);
+                  target.face.setStrokeStyle(6, 0xd9a057, 1);
                   target.roof.fillAlpha = 0.4;
-                  target.titleNode.setScale(1.04);
-                  target.icon.setScale(1.08);
+                  target.titleNode.setScale(1.06);
+                  target.icon.setScale(1.12);
                   const targetX = target.door.x;
                   const targetY = target.door.y + 52;
                   runner.scaleX = target.x < runner.x ? -1 : 1;
                   if (immediate) {
                     runner.setPosition(targetX, targetY + idleOffset);
                     runnerShadow.setPosition(targetX, targetY + 52);
+                    speechBubble.setPosition(targetX + 94, targetY - 36);
                     return;
                   }
                   sceneRef.tweens.killTweensOf([runner, runnerShadow]);
@@ -599,6 +569,7 @@ function renderStoryHtml(payload) {
                     ease: "Quad.easeInOut",
                     onUpdate() {
                       runner.y += idleOffset;
+                      speechBubble.setPosition(runner.x + 94, runner.y - 36);
                     },
                   });
                 },
@@ -624,10 +595,46 @@ function renderStoryHtml(payload) {
                     const base = baseRunnerPosition(activeRoomId);
                     runner.setPosition(base.x, base.y + idleOffset);
                     runnerShadow.setPosition(base.x, base.y + 52);
+                    speechBubble.setPosition(base.x + 94, base.y - 36);
                   }
                 },
-                getBubbleAnchor() {
-                  return runner ? { x: runner.x, y: runner.y } : { x: 140, y: 240 };
+                showSpeech(text, tone) {
+                  if (!sceneRef || !speechBubble || !speechText || !runner) return;
+                  speechText.setText(summarize(text));
+                  const color = tone === "human" ? 0xd97a4a : tone === "tool" ? 0xc5a04f : 0x6d7fa4;
+                  speechBg.setStrokeStyle(4, color, 1);
+                  speechBubble.setPosition(runner.x + 94, runner.y - 36);
+                  sceneRef.tweens.killTweensOf(speechBubble);
+                  speechBubble.setAlpha(0);
+                  speechBubble.y += 8;
+                  sceneRef.tweens.add({
+                    targets: speechBubble,
+                    alpha: 1,
+                    y: runner.y - 36,
+                    duration: 220,
+                    ease: "Quad.easeOut",
+                  });
+                },
+                setHud(hud) {
+                  if (!hudRoute || !hudTitle || !hudBody) return;
+                  hudRoute.setText(hud.route);
+                  hudTitle.setText(hud.title);
+                  hudBody.setText(summarize(hud.text.length > 260 ? hud.text.slice(0, 257) + "..." : hud.text));
+                  hudBeatItems.forEach((item, index) => {
+                    const beat = hud.recent[index];
+                    if (!beat) {
+                      item.card.setAlpha(0.2);
+                      item.label.setText("");
+                      item.body.setText("");
+                      return;
+                    }
+                    const isActive = hud.activeIndex === beats.indexOf(beat);
+                    item.card.setAlpha(1);
+                    item.card.setFillStyle(isActive ? 0x4a3119 : 0x291d14, 0.98);
+                    item.card.setStrokeStyle(3, isActive ? 0xe6b85c : 0x6e4f2c, 1);
+                    item.label.setText(beat.label);
+                    item.body.setText(summarize(beat.text));
+                  });
                 },
               };
             },
@@ -651,12 +658,18 @@ function renderStoryHtml(payload) {
         createPhaserStage();
         if (activeIndex >= 0) {
           moveRunner(roomForBeat(beats[activeIndex]), true);
-          setBubble(beats[activeIndex].text, toneForBeat(beats[activeIndex]));
+          phaserApi?.setHud({
+            title: beats[activeIndex].label,
+            text: beats[activeIndex].text,
+            route: routeLine(beats[activeIndex], roomForBeat(beats[activeIndex])),
+            recent: beats.slice(Math.max(0, activeIndex - 3), activeIndex + 1),
+            activeIndex,
+          });
+          phaserApi?.showSpeech(beats[activeIndex].text, toneForBeat(beats[activeIndex]));
         }
       });
 
       createPhaserStage();
-      renderTimeline();
       startIdle();
       if (beats[0]) {
         showEvent(0, { immediate: true });
