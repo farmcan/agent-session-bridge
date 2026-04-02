@@ -4,8 +4,10 @@ import { renderCodexSessionExport } from "./adapters/targets/codex-session.js";
 import { detectAgent, formatAgentName, getDefaultRoot, supportedAgents } from "./core/agents.js";
 import { findLatestSession, findMatchingSessions, findSessionById } from "./core/discovery.js";
 import { forkSession, splitSession } from "./core/session-transforms.js";
+import { buildStoryPayload } from "./core/story-events.js";
 
 export {
+  buildStoryPayload,
   detectAgent,
   findLatestSession,
   findMatchingSessions,

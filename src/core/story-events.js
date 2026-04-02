@@ -55,6 +55,101 @@ function titleizeToolName(toolName) {
     .join(" ");
 }
 
+function roomIdForEvent(event, toolRooms) {
+  if (event.type === "user" || event.type === "assistant") {
+    return "human-hall";
+  }
+  if (event.type === "reasoning" || event.type === "commentary") {
+    return "llm-core";
+  }
+  if (event.type === "tool_call" || event.type === "tool_result") {
+    const match = toolRooms.find((room) => room.toolName === event.toolName);
+    return match?.id ?? "tool-workshop";
+  }
+  return "llm-core";
+}
+
+function summarizeBeatLabel(events, roomId, toolRooms) {
+  const first = events[0];
+  if (!first) {
+    return "Beat";
+  }
+
+  if (roomId === "human-hall") {
+    return first.type === "user" ? "Human Exchange" : "Agent Reply";
+  }
+  if (roomId === "llm-core") {
+    return "Reasoning Beat";
+  }
+  const toolRoom = toolRooms.find((room) => room.id === roomId);
+  return toolRoom ? `${toolRoom.title} Beat` : first.label;
+}
+
+function summarizeBeatText(events) {
+  return events
+    .map((event) => trimText(event.text))
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("\n\n");
+}
+
+function shouldMergeBeat(currentBeat, nextEvent, nextRoomId) {
+  if (!currentBeat || currentBeat.roomId !== nextRoomId) {
+    return false;
+  }
+  if (currentBeat.events.length >= 3) {
+    return false;
+  }
+
+  const previous = currentBeat.events.at(-1);
+  if (!previous) {
+    return false;
+  }
+
+  if (previous.type === "tool_call" && nextEvent.type === "tool_result" && previous.toolName === nextEvent.toolName) {
+    return true;
+  }
+
+  const roomIsHumanOrLlm = nextRoomId === "human-hall" || nextRoomId === "llm-core";
+  if (roomIsHumanOrLlm && previous.role === nextEvent.role) {
+    return true;
+  }
+
+  return roomIsHumanOrLlm && ["commentary", "assistant", "reasoning", "user"].includes(previous.type) && ["commentary", "assistant", "reasoning", "user"].includes(nextEvent.type);
+}
+
+function buildStoryBeats(events, toolRooms) {
+  const beats = [];
+
+  for (const event of events) {
+    const roomId = roomIdForEvent(event, toolRooms);
+    const currentBeat = beats.at(-1);
+
+    if (shouldMergeBeat(currentBeat, event, roomId)) {
+      currentBeat.events.push(event);
+      currentBeat.text = summarizeBeatText(currentBeat.events);
+      continue;
+    }
+
+    beats.push({
+      id: `beat-${beats.length + 1}`,
+      roomId,
+      label: summarizeBeatLabel([event], roomId, toolRooms),
+      text: summarizeBeatText([event]),
+      type: event.type,
+      events: [event],
+      timestamp: event.timestamp ?? null,
+    });
+  }
+
+  for (const beat of beats) {
+    beat.label = summarizeBeatLabel(beat.events, beat.roomId, toolRooms);
+    beat.text = summarizeBeatText(beat.events);
+  }
+
+  return beats;
+}
+
 function classifyToolName(toolName) {
   const normalized = normalizeToolName(toolName).toLowerCase();
 
@@ -348,6 +443,18 @@ export function buildStoryPayload(session, context = {}) {
       seenRoomIds.add(room.id);
       return true;
     });
+  const normalizedToolRooms =
+    toolRooms.length > 0
+      ? toolRooms
+      : [
+          {
+            id: "tool-workshop",
+            toolName: "tool",
+            title: "Tool Workshop",
+            category: { key: "tools", title: "General Tools Wing" },
+          },
+        ];
+  const beats = buildStoryBeats(events, normalizedToolRooms);
 
   return {
     sessionId: session.sessionId,
@@ -357,16 +464,7 @@ export function buildStoryPayload(session, context = {}) {
     updatedAt: session.updatedAt,
     title,
     events,
-    toolRooms:
-      toolRooms.length > 0
-        ? toolRooms
-        : [
-            {
-              id: "tool-workshop",
-              toolName: "tool",
-              title: "Tool Workshop",
-              category: { key: "tools", title: "General Tools Wing" },
-            },
-          ],
+    beats,
+    toolRooms: normalizedToolRooms,
   };
 }

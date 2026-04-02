@@ -10,6 +10,7 @@ import { chooseClaudeSessionPath, chooseSessionPath } from "../src/cli.js";
 import { exportSession } from "../src/core/exporting.js";
 import { getExportCapability, inferDefaultExportFormat } from "../src/core/routing.js";
 import {
+  buildStoryPayload,
   detectAgent,
   findMatchingSessions,
   findLatestSession,
@@ -244,7 +245,9 @@ test("exportSession renders a standalone session story html", async () => {
   assert.equal(exported.mode, "session-story-html");
   assert.equal(exported.files.length, 1);
   assert.match(exported.files[0].fileName, /\.html$/);
-  assert.match(exported.files[0].content, /pixi/i);
+  assert.match(exported.files[0].content, /phaser/i);
+  assert.match(exported.files[0].content, /phaser-stage/i);
+  assert.doesNotMatch(exported.files[0].content, /renderer:\s*DOM \+ PixiJS loaded/i);
   assert.match(exported.files[0].content, /anime/i);
   assert.match(exported.files[0].content, /requestAnimationFrame/i);
   assert.match(exported.files[0].content, /schedulePlayback\(\)/);
@@ -286,6 +289,34 @@ test("story html groups tools into category wings", async () => {
   assert.match(exported.files[0].content, /Terminal Wing/);
   assert.match(exported.files[0].content, /Read File Room/);
   assert.match(exported.files[0].content, /Exec Command Room/);
+});
+
+test("buildStoryPayload groups adjacent events into playback beats", async () => {
+  const tempDir = await makeTempDir("story-beats");
+  const sessionPath = path.join(tempDir, "story-beats.jsonl");
+  await fs.writeFile(
+    sessionPath,
+    [
+      '{"timestamp":"2026-03-20T10:00:00.000Z","type":"session_meta","payload":{"id":"story-beats","cwd":"/tmp/demo"}}',
+      '{"timestamp":"2026-03-20T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"inspect repo"}]}}',
+      '{"timestamp":"2026-03-20T10:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"I will inspect the repository structure."}}',
+      '{"timestamp":"2026-03-20T10:00:03.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I will inspect the repository structure."}]}}',
+      '{"timestamp":"2026-03-20T10:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\\"cmd\\":\\"ls\\"}"}}',
+      '{"timestamp":"2026-03-20T10:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","name":"exec_command","output":"README.md\\nsrc"}}',
+    ].join("\n") + "\n",
+    "utf8",
+  );
+
+  const session = await parseSession({ sessionPath, agent: "codex" });
+  const payload = buildStoryPayload(session, { sourceAgent: "codex", targetAgent: "codex" });
+
+  assert.equal(payload.events.length, 5);
+  assert.equal(payload.beats.length, 4);
+  assert.equal(payload.beats[0].roomId, "human-hall");
+  assert.equal(payload.beats[1].roomId, "llm-core");
+  assert.equal(payload.beats[2].roomId, "human-hall");
+  assert.equal(payload.beats[3].roomId, "tool-exec-command");
+  assert.equal(payload.beats[3].events.length, 2);
 });
 
 test("splitSession keeps only the most recent user turn and following messages", async () => {
@@ -1082,7 +1113,8 @@ test("cli can export a session story html", async () => {
   const content = await fs.readFile(exportPath, "utf8");
   assert.equal(result.code, 0);
   assert.match(content, /Session Story/);
-  assert.match(content, /pixi/i);
+  assert.match(content, /phaser/i);
+  assert.match(content, /phaser-stage/i);
   assert.match(content, /anime/i);
   assert.match(content, /requestAnimationFrame/i);
 });
